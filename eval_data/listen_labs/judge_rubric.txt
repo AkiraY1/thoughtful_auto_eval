@@ -1,0 +1,108 @@
+## Evaluation Goal
+
+Assess whether the assistant conducts the interview in strict accordance with the target system prompt, demonstrating expert-level user interviewing skills, precise adherence to the discussion guide and follow-up rules, concise and professional communication, and correct handling of markdown and conversation flow.
+
+## Scoring Scale (0-5)
+
+- **5 – Excellent:** Fully meets all criteria; no significant errors or omissions; exemplary adherence to all instructions.
+- **4 – Good:** Minor, non-critical lapses; overall strong performance; no major errors.
+- **3 – Adequate:** Some noticeable issues or inconsistencies; generally follows instructions but with moderate errors.
+- **2 – Poor:** Frequent or serious errors; significant deviation from instructions or style.
+- **1 – Very Poor:** Major failures in multiple criteria; interview is confusing or non-compliant.
+- **0 – Unacceptable:** Critical failures (e.g., skips questions, hallucinates, ignores follow-up rules, or fails to preserve markdown); fundamentally unusable.
+
+## Criteria
+
+### 1. **Discussion Guide Adherence** (Weight: 20%)
+- **Check:** Does the assistant use only the CURRENT INTERVIEW DISCUSSION GUIDE (not example guides)? Are all questions asked in order, with no skipping or jumping ahead (except for explicit conditional logic)?
+- **Failure Modes:** Uses example guide; skips or reorders questions; asks questions not in the guide; ends early without explicit instruction.
+- **High Score:** All questions asked in correct order, only from the current guide.
+- **Low Score:** Skips questions, uses wrong guide, or ends interview prematurely.
+
+### 2. **Follow-up Rule Compliance** (Weight: 15%)
+- **Check:** Are follow-up questions asked only as allowed by the `follow_up` argument and according to the specified rules for each type?
+- **Failure Modes:** Exceeds allowed number of follow-ups; asks follow-ups when not permitted; fails to ask required clarifications; ignores follow-up limits.
+- **High Score:** Strictly follows follow-up rules for each question.
+- **Low Score:** Ignores or misapplies follow-up rules.
+
+### 3. **Repetition Avoidance & Contextual Adaptation** (Weight: 15%)
+- **Check:** Does the assistant avoid repeating questions already answered, acknowledge prior relevant answers, and adapt questions to reference user’s earlier responses?
+- **Failure Modes:** Repeats questions verbatim when already answered; fails to reference earlier relevant answers; ignores user context.
+- **High Score:** Smoothly references and builds on prior answers, adapts questions as needed.
+- **Low Score:** Repeats questions unnecessarily; ignores user context.
+
+### 4. **Conciseness & Message Length** (Weight: 10%)
+- **Check:** Are all responses a single paragraph, short, and easy to read? No multi-paragraph or overly verbose messages.
+- **Failure Modes:** Responses are long, multi-paragraph, or unnecessarily wordy.
+- **High Score:** All responses concise, single-paragraph, and clear.
+- **Low Score:** Verbose, multi-paragraph, or burdensome to read.
+
+### 5. **Question/Statement/End Item Handling** (Weight: 10%)
+- **Check:** Are <question>, <statement>, and <interview_end> items handled as specified (e.g., only ask questions for <question>, only provide info for <statement>, use exact text for <interview_end>)?
+- **Failure Modes:** Asks questions for <statement> or <interview_end>; modifies required text; fails to acknowledge statements properly.
+- **High Score:** Each item type handled exactly as instructed.
+- **Low Score:** Misclassifies or mishandles item types.
+
+### 6. **Markdown Preservation** (Weight: 10%)
+- **Check:** Are all markdown formatting characters (`**`, `*`, `_`, `[text](url)`) preserved exactly as in the discussion guide? No added, removed, or altered markdown.
+- **Failure Modes:** Strips, adds, or alters markdown; normalizes or reformats markdown; fails to preserve links.
+- **High Score:** Markdown is preserved exactly as in the guide.
+- **Low Score:** Any markdown is lost, added, or changed.
+
+### 7. **Tone & Style** (Weight: 10%)
+- **Check:** Is the tone compassionate, professional, concise, and casual (plain language, not formal or technical)? Does the assistant avoid answering off-topic questions, call out jokes, and avoid leading or yes/no questions?
+- **Failure Modes:** Tone is formal, robotic, or verbose; answers off-topic; fails to call out jokes; asks leading or yes/no questions.
+- **High Score:** Tone is as specified; style is consistent and appropriate.
+- **Low Score:** Tone/style violations; off-topic or inappropriate responses.
+
+### 8. **Question Wording Adaptation** (Weight: 10%)
+- **Check:** Does the assistant adapt question wording only when justified (e.g., to reference prior answers or clarify templates), and otherwise preserve original wording for <question type="multiple_choice">, <statement>, and <interview_end>?
+- **Failure Modes:** Unjustified rewording; fails to adapt when required; changes wording for restricted item types.
+- **High Score:** Adapts wording only when appropriate; preserves wording when required.
+- **Low Score:** Unjustified changes or failure to adapt when needed.
+
+## Pass/Fail Rule
+
+- **Minimum Pass Score:** 4.0 average across all criteria (weighted).
+- **Critical Fail Conditions (automatic fail, score 0):**
+  - Skips any required question without explicit conditional instruction.
+  - Uses example discussion guide instead of the current one.
+  - Hallucinates or invents questions/items not present in the guide.
+  - Fails to preserve markdown formatting.
+  - Ends interview early without explicit instruction.
+
+## Judge Instructions
+
+1. **Read the assistant’s full response and the relevant context (discussion guide, user input, prior conversation).**
+2. **For each criterion, assign a score from 0–5 based on observable behaviors and the definitions above.**
+3. **Apply the specified weight to each criterion.**
+4. **Calculate the weighted average score.**
+5. **Check for any critical fail conditions. If any are present, assign an overall score of 0 and mark as fail.**
+6. **If no critical fail, determine if the weighted average meets the minimum pass threshold (≥4.0).**
+7. **Output your evaluation in the specified JSON format.**
+
+## Output Format For The Judge
+
+```json
+{
+  "criteria_scores": {
+    "discussion_guide_adherence": 0,
+    "follow_up_rule_compliance": 0,
+    "repetition_avoidance_contextual_adaptation": 0,
+    "conciseness_message_length": 0,
+    "question_statement_end_handling": 0,
+    "markdown_preservation": 0,
+    "tone_style": 0,
+    "question_wording_adaptation": 0
+  },
+  "weighted_average": 0.0,
+  "critical_fail": false,
+  "pass": false,
+  "comments": ""
+}
+```
+- `criteria_scores`: integer 0–5 for each criterion.
+- `weighted_average`: float, two decimals.
+- `critical_fail`: boolean.
+- `pass`: boolean.
+- `comments`: brief justification for scores and any notable observations.
