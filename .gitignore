@@ -3,6 +3,7 @@
 
 ### Project specific ###
 **/*.json
+jobs/
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
