@@ -1,0 +1,3 @@
+[submodule "harbor-cookbook"]
+	path = harbor-cookbook
+	url = git@github.com:harbor-framework/harbor-cookbook.git
