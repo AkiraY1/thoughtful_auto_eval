@@ -26,3 +26,22 @@ We both want methods that can be used to evaluate any LLM (for both training and
 # Code Structure
 
 ```eval_data``` contains one directory per eval task. Each task directory must contain a systemPrompt.txt file and an eval_dataset_full.json file. The task directory will be used as input for rubric creation, etc. and also is the destination for file creation, such as judge_rubric.txt files.
+
+For autonomous eval creation, we want:
+1. An LLM to create the rubric for the LLM as a judge (define rubric, judge explains reasoning, then output final score)
+2. Do very long evaluations of some example data with the agent
+3. Call the LLM judge w/ rubric
+4. Compare results with the very long agent evaluations of the example data
+5. Agent uses feedback to iterate on rubric
+
+
+
+
+
+Judge comparison to:
+1. Other models
+2. Other rubrics
+2. Its own judgements
+
+
+Dspy requires feedback, to optimize against which you probably don't want.
