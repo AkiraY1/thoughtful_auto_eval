@@ -155,7 +155,6 @@ def _resolve_eval_paths(eval_dir_str: str) -> tuple[Path, Path, Path]:
     judge_rubric_path = eval_dir / JUDGE_RUBRIC_FILENAME
     return eval_dir, system_prompt_path, judge_rubric_path
 
-
 def main() -> None:
     args = _parse_args()
     _, system_prompt_path, judge_rubric_path = _resolve_eval_paths(args.eval_dir)
