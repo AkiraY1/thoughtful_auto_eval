@@ -23,19 +23,18 @@ from pathlib import Path
 path = Path("/app/change_summary.json")
 if path.exists():
     data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, list):
-        data = []
+    if not isinstance(data, dict):
+        data = {}
 else:
-    data = []
+    data = {}
 
-data.append(
-    {
-        "iteration": len(data) + 1,
-        "changes": [
-            "Clarified one key criterion wording.",
-            "Adjusted one scale range for better discrimination.",
-        ],
-    }
+existing_numeric_keys = sorted(
+    [int(k) for k in data.keys() if str(k).isdigit()]
 )
+next_key = str(existing_numeric_keys[-1] + 1 if existing_numeric_keys else 0)
+data[next_key] = [
+    "Clarified one key criterion wording.",
+    "Adjusted one scale range for better discrimination.",
+]
 path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 EOF

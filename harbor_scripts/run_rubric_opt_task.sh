@@ -4,6 +4,18 @@ set -euo pipefail
 # Suppress noisy upstream deprecation warnings from Harbor/Modal internals.
 export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore::PendingDeprecationWarning}"
 
+print_sha256() {
+  local label="$1"
+  local path="$2"
+  if [[ -f "$path" ]]; then
+    local digest
+    digest="$(shasum -a 256 "$path" | awk '{print $1}')"
+    echo "[hash] $label :: $path :: $digest"
+  else
+    echo "[hash] $label :: $path :: <missing>"
+  fi
+}
+
 if [[ $# -lt 2 || $# -gt 3 ]]; then
   echo "Usage: $0 /path/to/systemPrompt.txt /path/to/responses.json [iterations]"
   exit 1
@@ -30,11 +42,31 @@ TASK_DIR="src/harbor_rubric_opt_task/environment"
 TASK_PROMPT_PATH="$TASK_DIR/system_prompt.txt"
 TASK_RESPONSES_PATH="$TASK_DIR/responses.json"
 TASK_LLM_API_PATH="$TASK_DIR/llm_api.py"
+REFINE_TASK_DIR="src/harbor_rubric_refine_task/environment"
+REFINE_OLD_RUBRICS_DIR="$REFINE_TASK_DIR/old_rubrics"
+LATEST_REFINE_ARTIFACTS_DIR="jobs/latest_harbor_rubric_refine_artifacts"
+LATEST_REFINE_ARTIFACTS_POINTER="jobs/latest_harbor_rubric_refine_artifacts.txt"
 
 if [[ ! -d "$TASK_DIR" ]]; then
   echo "Task environment directory not found: $TASK_DIR"
   exit 1
 fi
+
+if [[ ! -d "$REFINE_TASK_DIR" ]]; then
+  echo "Refine task environment directory not found: $REFINE_TASK_DIR"
+  exit 1
+fi
+
+# Fresh-start cleanup for stateful environment + local artifact pointers.
+rm -rf "$LATEST_REFINE_ARTIFACTS_DIR"
+rm -f "$LATEST_REFINE_ARTIFACTS_POINTER"
+
+# Reset refine task environment stateful files/directories.
+rm -f "$REFINE_TASK_DIR/rubric.json" "$REFINE_TASK_DIR/responses.json" "$REFINE_TASK_DIR/output.json" "$REFINE_TASK_DIR/change_summary.json"
+rm -f "$REFINE_TASK_DIR/agent_notes.md"
+rm -rf "$REFINE_OLD_RUBRICS_DIR"
+mkdir -p "$REFINE_OLD_RUBRICS_DIR"
+touch "$REFINE_OLD_RUBRICS_DIR/.gitkeep"
 
 # Remove any stale files from prior runs while keeping task source files.
 shopt -s nullglob dotglob
@@ -112,13 +144,19 @@ cp "$SYSTEM_PROMPT_SOURCE" "$TASK_PROMPT_PATH"
 cp "$RESPONSES_JSON_SOURCE" "$TASK_RESPONSES_PATH"
 cp "$LLM_API_SOURCE" "$TASK_LLM_API_PATH"
 
+print_sha256 "opt_input.system_prompt.source" "$SYSTEM_PROMPT_SOURCE"
+print_sha256 "opt_input.system_prompt.task_copy" "$TASK_PROMPT_PATH"
+print_sha256 "opt_input.responses.source" "$RESPONSES_JSON_SOURCE"
+print_sha256 "opt_input.responses.task_copy" "$TASK_RESPONSES_PATH"
+print_sha256 "opt_input.llm_api.source" "$LLM_API_SOURCE"
+print_sha256 "opt_input.llm_api.task_copy" "$TASK_LLM_API_PATH"
+
 HARBOR_ARGS=(
   run
   -p src/harbor_rubric_opt_task
   --env modal
-  --force-build
   --agent claude-code
-  --model anthropic/claude-opus-4-1
+  --model anthropic/claude-sonnet-4-6
   --ae ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
   --artifact /app/rubric.json
   --yes
@@ -158,10 +196,17 @@ for ((iter = 1; iter <= ITERATIONS; iter++)); do
   AGENT_NOTES_PATH="$ITER_DIR/agent_notes.md"
   CHANGE_SUMMARY_PATH="$ITER_DIR/change_summary.json"
   OLD_RUBRICS_PATH="$ITER_DIR/old_rubrics"
+  ITER_TIMINGS_PATH="$ITER_DIR/timings.json"
 
+  ITER_START_TS="$(date +%s)"
   cp "$CURRENT_RUBRIC_PATH" "$RUBRIC_BEFORE_PATH"
+  print_sha256 "$ITER_LABEL.rubric_before_refine" "$RUBRIC_BEFORE_PATH"
+  if [[ -n "$CURRENT_CHANGE_SUMMARY_PATH" ]]; then
+    print_sha256 "$ITER_LABEL.change_summary_before_refine" "$CURRENT_CHANGE_SUMMARY_PATH"
+  fi
 
   echo "[$ITER_LABEL] Running deterministic judge with rubric: $RUBRIC_BEFORE_PATH"
+  JUDGING_START_TS="$(date +%s)"
   ./harbor_scripts/run_deterministic_judge_list.sh \
     "$RUBRIC_BEFORE_PATH" \
     "$RESPONSES_JSON_SOURCE" \
@@ -169,8 +214,11 @@ for ((iter = 1; iter <= ITERATIONS; iter++)); do
 
   echo "[$ITER_LABEL] Summarizing deterministic judge output: $JUDGE_OUTPUT_PATH"
   python3 src/summarize_judge_output.py --output-json "$JUDGE_OUTPUT_PATH"
+  print_sha256 "$ITER_LABEL.judge_output_summarized" "$JUDGE_OUTPUT_PATH"
+  JUDGING_END_TS="$(date +%s)"
 
   echo "[$ITER_LABEL] Running Harbor refinement task"
+  REFINE_START_TS="$(date +%s)"
   if [[ -n "$CURRENT_CHANGE_SUMMARY_PATH" ]]; then
     ./harbor_scripts/run_rubric_refine_task.sh \
       "$RUBRIC_BEFORE_PATH" \
@@ -183,6 +231,7 @@ for ((iter = 1; iter <= ITERATIONS; iter++)); do
       "$RESPONSES_JSON_SOURCE" \
       "$JUDGE_OUTPUT_PATH"
   fi
+  REFINE_END_TS="$(date +%s)"
 
   if [[ ! -d "$STABLE_REFINE_DIR" ]]; then
     echo "[$ITER_LABEL] Missing stable refine artifacts directory: $STABLE_REFINE_DIR"
@@ -202,6 +251,22 @@ for ((iter = 1; iter <= ITERATIONS; iter++)); do
 
   CURRENT_RUBRIC_PATH="$RUBRIC_AFTER_PATH"
   CURRENT_CHANGE_SUMMARY_PATH="$CHANGE_SUMMARY_PATH"
+
+  ITER_END_TS="$(date +%s)"
+  JUDGING_DURATION_SEC=$((JUDGING_END_TS - JUDGING_START_TS))
+  REFINEMENT_DURATION_SEC=$((REFINE_END_TS - REFINE_START_TS))
+  ITERATION_DURATION_SEC=$((ITER_END_TS - ITER_START_TS))
+
+  cat > "$ITER_TIMINGS_PATH" <<EOF
+{
+  "iteration_label": "$ITER_LABEL",
+  "judging_duration_sec": $JUDGING_DURATION_SEC,
+  "refinement_duration_sec": $REFINEMENT_DURATION_SEC,
+  "iteration_duration_sec": $ITERATION_DURATION_SEC
+}
+EOF
+
+  echo "[$ITER_LABEL] Timing: judging=${JUDGING_DURATION_SEC}s refinement=${REFINEMENT_DURATION_SEC}s total=${ITERATION_DURATION_SEC}s"
   echo "[$ITER_LABEL] Completed."
 done
 

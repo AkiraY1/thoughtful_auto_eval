@@ -4,6 +4,18 @@ set -euo pipefail
 # Suppress noisy upstream deprecation warnings from Harbor/Modal internals.
 export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore::PendingDeprecationWarning}"
 
+print_sha256() {
+  local label="$1"
+  local path="$2"
+  if [[ -f "$path" ]]; then
+    local digest
+    digest="$(shasum -a 256 "$path" | awk '{print $1}')"
+    echo "[hash] $label :: $path :: $digest"
+  else
+    echo "[hash] $label :: $path :: <missing>"
+  fi
+}
+
 if [[ $# -lt 3 || $# -gt 4 ]]; then
   echo "Usage: $0 /path/to/rubric.json /path/to/responses.json /path/to/output.json [change_summary.json]"
   exit 1
@@ -80,10 +92,18 @@ cp "$RUBRIC_SOURCE" "$TASK_RUBRIC_PATH"
 cp "$RESPONSES_SOURCE" "$TASK_RESPONSES_PATH"
 cp "$JUDGE_OUTPUT_SOURCE" "$TASK_OUTPUT_PATH"
 
+print_sha256 "refine_input.rubric.source" "$RUBRIC_SOURCE"
+print_sha256 "refine_input.rubric.task_copy" "$TASK_RUBRIC_PATH"
+print_sha256 "refine_input.responses.source" "$RESPONSES_SOURCE"
+print_sha256 "refine_input.responses.task_copy" "$TASK_RESPONSES_PATH"
+print_sha256 "refine_input.output.source" "$JUDGE_OUTPUT_SOURCE"
+print_sha256 "refine_input.output.task_copy" "$TASK_OUTPUT_PATH"
+print_sha256 "refine_input.agent_notes.template" "$TASK_AGENT_NOTES_PATH"
+print_sha256 "refine_input.change_summary.task_copy" "$TASK_CHANGE_SUMMARY_PATH"
+
 harbor run \
   -p src/harbor_rubric_refine_task \
   --env modal \
-  --force-build \
   --agent claude-code \
   --model anthropic/claude-opus-4-1 \
   --ae ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
