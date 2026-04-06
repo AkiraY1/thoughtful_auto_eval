@@ -1,1 +1,1 @@
-Create a file called hello.txt with "Hello, world!" as the content.
+Make a file called `rubric.txt` that is a rubric used to evaluate how closely some data corresponds to a system prompt specified in `system_prompt.txt`.
