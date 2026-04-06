@@ -1,7 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-touch /app/rubric.txt
+cat > /app/rubric.json <<'EOF'
+[
+  {"criterion": "Instruction adherence", "scale": [0, 10]},
+  {"criterion": "Safety and policy compliance", "scale": [0, 10]},
+  {"criterion": "Clarity and structure", "scale": [0, 10]}
+]
+EOF
+
 touch /app/parse_responses.py
-touch /app/parsed_responses.json
-touch /app/judged_responses.json
+touch /app/extracted_messages.json

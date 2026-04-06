@@ -22,6 +22,22 @@ TASK_PROMPT_PATH="$TASK_DIR/system_prompt.txt"
 TASK_RESPONSES_PATH="$TASK_DIR/responses.json"
 TASK_LLM_API_PATH="$TASK_DIR/llm_api.py"
 
+if [[ ! -d "$TASK_DIR" ]]; then
+  echo "Task environment directory not found: $TASK_DIR"
+  exit 1
+fi
+
+# Remove any stale files from prior runs while keeping task source files.
+shopt -s nullglob dotglob
+for entry in "$TASK_DIR"/*; do
+  name="$(basename "$entry")"
+  if [[ "$name" == "Dockerfile" || "$name" == "skills" ]]; then
+    continue
+  fi
+  rm -rf "$entry"
+done
+shopt -u nullglob dotglob
+
 if [[ ! -f "$SYSTEM_PROMPT_SOURCE" ]]; then
   echo "System prompt file not found: $SYSTEM_PROMPT_SOURCE"
   exit 1
@@ -95,7 +111,7 @@ HARBOR_ARGS=(
   --agent claude-code
   --model anthropic/claude-opus-4-1
   --ae ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
-  --artifact /app/rubric.txt
+  --artifact /app/rubric.json
   --artifact /app/parse_responses.py
   --artifact /app/extracted_messages.json
   --yes
