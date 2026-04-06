@@ -170,7 +170,6 @@ def main() -> None:
         )
 
     with right_col:
-        st.subheader("Optimization Progress")
         progress_placeholder = st.empty()
         progress_bar_placeholder = st.empty()
         eta_placeholder = st.empty()
