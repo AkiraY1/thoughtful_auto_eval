@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "Usage: $0 /path/to/systemPrompt.txt /path/to/responses.json"
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "Usage: $0 /path/to/systemPrompt.txt /path/to/responses.json [iterations]"
   exit 1
 fi
 
@@ -15,7 +15,13 @@ fi
 
 SYSTEM_PROMPT_SOURCE="$1"
 RESPONSES_JSON_SOURCE="$2"
+ITERATIONS="${3:-1}"
 LLM_API_SOURCE="src/llm_api.py"
+
+if ! [[ "$ITERATIONS" =~ ^[0-9]+$ ]] || [[ "$ITERATIONS" -lt 1 ]]; then
+  echo "iterations must be a positive integer. Got: $ITERATIONS"
+  exit 1
+fi
 
 TASK_DIR="src/harbor_rubric_opt_task/environment"
 TASK_PROMPT_PATH="$TASK_DIR/system_prompt.txt"
@@ -128,22 +134,89 @@ if [[ -z "${LATEST_RUBRIC_ARTIFACT:-}" ]]; then
 fi
 
 LATEST_ARTIFACTS_DIR="$(dirname "$LATEST_RUBRIC_ARTIFACT")"
-JUDGE_OUTPUT_PATH="$LATEST_ARTIFACTS_DIR/output.json"
+LOOP_DIR="$LATEST_ARTIFACTS_DIR/optimization_loop"
+mkdir -p "$LOOP_DIR"
 
-echo "Running deterministic judge with rubric: $LATEST_RUBRIC_ARTIFACT"
-./harbor_scripts/run_deterministic_judge_list.sh \
-  "$LATEST_RUBRIC_ARTIFACT" \
-  "$RESPONSES_JSON_SOURCE" \
-  "$JUDGE_OUTPUT_PATH"
+CURRENT_RUBRIC_PATH="$LATEST_RUBRIC_ARTIFACT"
+CURRENT_CHANGE_SUMMARY_PATH=""
+STABLE_REFINE_DIR="jobs/latest_harbor_rubric_refine_artifacts"
+STABLE_REFINE_POINTER="jobs/latest_harbor_rubric_refine_artifacts.txt"
 
-echo "Summarizing deterministic judge output into: $JUDGE_OUTPUT_PATH"
-python3 src/summarize_judge_output.py --output-json "$JUDGE_OUTPUT_PATH"
+echo "Starting optimization loop for $ITERATIONS iteration(s)."
+for ((iter = 1; iter <= ITERATIONS; iter++)); do
+  ITER_LABEL="$(printf "iter_%03d" "$iter")"
+  ITER_DIR="$LOOP_DIR/$ITER_LABEL"
+  mkdir -p "$ITER_DIR"
 
-echo "Running Harbor refinement task"
-./harbor_scripts/run_rubric_refine_task.sh \
-  "$LATEST_RUBRIC_ARTIFACT" \
-  "$RESPONSES_JSON_SOURCE" \
-  "$JUDGE_OUTPUT_PATH"
+  RUBRIC_BEFORE_PATH="$ITER_DIR/rubric_before_refine.json"
+  JUDGE_OUTPUT_PATH="$ITER_DIR/output.json"
+  RUBRIC_AFTER_PATH="$ITER_DIR/rubric_after_refine.json"
+  AGENT_EVAL_PATH="$ITER_DIR/agent_eval.json"
+  AGENT_NOTES_PATH="$ITER_DIR/agent_notes.md"
+  CHANGE_SUMMARY_PATH="$ITER_DIR/change_summary.json"
+  OLD_RUBRICS_PATH="$ITER_DIR/old_rubrics"
 
-echo "Deterministic judge output written to: $JUDGE_OUTPUT_PATH"
-echo "Rubric refinement Harbor task completed."
+  cp "$CURRENT_RUBRIC_PATH" "$RUBRIC_BEFORE_PATH"
+
+  echo "[$ITER_LABEL] Running deterministic judge with rubric: $RUBRIC_BEFORE_PATH"
+  ./harbor_scripts/run_deterministic_judge_list.sh \
+    "$RUBRIC_BEFORE_PATH" \
+    "$RESPONSES_JSON_SOURCE" \
+    "$JUDGE_OUTPUT_PATH"
+
+  echo "[$ITER_LABEL] Summarizing deterministic judge output: $JUDGE_OUTPUT_PATH"
+  python3 src/summarize_judge_output.py --output-json "$JUDGE_OUTPUT_PATH"
+
+  echo "[$ITER_LABEL] Running Harbor refinement task"
+  if [[ -n "$CURRENT_CHANGE_SUMMARY_PATH" ]]; then
+    ./harbor_scripts/run_rubric_refine_task.sh \
+      "$RUBRIC_BEFORE_PATH" \
+      "$RESPONSES_JSON_SOURCE" \
+      "$JUDGE_OUTPUT_PATH" \
+      "$CURRENT_CHANGE_SUMMARY_PATH"
+  else
+    ./harbor_scripts/run_rubric_refine_task.sh \
+      "$RUBRIC_BEFORE_PATH" \
+      "$RESPONSES_JSON_SOURCE" \
+      "$JUDGE_OUTPUT_PATH"
+  fi
+
+  if [[ ! -d "$STABLE_REFINE_DIR" ]]; then
+    echo "[$ITER_LABEL] Missing stable refine artifacts directory: $STABLE_REFINE_DIR"
+    exit 1
+  fi
+  if [[ ! -f "$STABLE_REFINE_DIR/rubric.json" ]]; then
+    echo "[$ITER_LABEL] Missing refined rubric in stable directory."
+    exit 1
+  fi
+
+  cp "$STABLE_REFINE_DIR/rubric.json" "$RUBRIC_AFTER_PATH"
+  cp "$STABLE_REFINE_DIR/agent_eval.json" "$AGENT_EVAL_PATH"
+  cp "$STABLE_REFINE_DIR/agent_notes.md" "$AGENT_NOTES_PATH"
+  cp "$STABLE_REFINE_DIR/change_summary.json" "$CHANGE_SUMMARY_PATH"
+  rm -rf "$OLD_RUBRICS_PATH"
+  cp -R "$STABLE_REFINE_DIR/old_rubrics" "$OLD_RUBRICS_PATH"
+
+  CURRENT_RUBRIC_PATH="$RUBRIC_AFTER_PATH"
+  CURRENT_CHANGE_SUMMARY_PATH="$CHANGE_SUMMARY_PATH"
+  echo "[$ITER_LABEL] Completed."
+done
+
+FINAL_DIR="$LOOP_DIR/final"
+mkdir -p "$FINAL_DIR"
+cp "$CURRENT_RUBRIC_PATH" "$FINAL_DIR/rubric.json"
+if [[ -n "$CURRENT_CHANGE_SUMMARY_PATH" ]]; then
+  cp "$CURRENT_CHANGE_SUMMARY_PATH" "$FINAL_DIR/change_summary.json"
+fi
+cat > "$FINAL_DIR/metadata.json" <<EOF
+{
+  "iterations": $ITERATIONS,
+  "final_rubric": "$FINAL_DIR/rubric.json",
+  "final_change_summary": "$FINAL_DIR/change_summary.json",
+  "loop_dir": "$LOOP_DIR",
+  "stable_refine_pointer": "$STABLE_REFINE_POINTER"
+}
+EOF
+
+echo "Optimization loop complete."
+echo "Final optimized rubric: $FINAL_DIR/rubric.json"

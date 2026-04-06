@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-  echo "Usage: $0 /path/to/rubric.json /path/to/responses.json /path/to/output.json"
+if [[ $# -lt 3 || $# -gt 4 ]]; then
+  echo "Usage: $0 /path/to/rubric.json /path/to/responses.json /path/to/output.json [change_summary.json]"
   exit 1
 fi
 
@@ -16,13 +16,16 @@ fi
 RUBRIC_SOURCE="$1"
 RESPONSES_SOURCE="$2"
 JUDGE_OUTPUT_SOURCE="$3"
+CHANGE_SUMMARY_SOURCE="${4:-}"
 
 TASK_DIR="src/harbor_rubric_refine_task/environment"
 TASK_RUBRIC_PATH="$TASK_DIR/rubric.json"
 TASK_RESPONSES_PATH="$TASK_DIR/responses.json"
 TASK_OUTPUT_PATH="$TASK_DIR/output.json"
 TASK_AGENT_NOTES_PATH="$TASK_DIR/agent_notes.md"
+TASK_CHANGE_SUMMARY_PATH="$TASK_DIR/change_summary.json"
 TASK_OLD_RUBRICS_DIR="$TASK_DIR/old_rubrics"
+TASK_OLD_RUBRICS_KEEP="$TASK_OLD_RUBRICS_DIR/.gitkeep"
 
 for required_path in "$RUBRIC_SOURCE" "$RESPONSES_SOURCE" "$JUDGE_OUTPUT_SOURCE"; do
   if [[ ! -f "$required_path" ]]; then
@@ -30,6 +33,11 @@ for required_path in "$RUBRIC_SOURCE" "$RESPONSES_SOURCE" "$JUDGE_OUTPUT_SOURCE"
     exit 1
   fi
 done
+
+if [[ -n "$CHANGE_SUMMARY_SOURCE" && ! -f "$CHANGE_SUMMARY_SOURCE" ]]; then
+  echo "change_summary input file not found: $CHANGE_SUMMARY_SOURCE"
+  exit 1
+fi
 
 if [[ ! -d "$TASK_DIR" ]]; then
   echo "Task environment directory not found: $TASK_DIR"
@@ -40,7 +48,7 @@ fi
 shopt -s nullglob dotglob
 for entry in "$TASK_DIR"/*; do
   name="$(basename "$entry")"
-  if [[ "$name" == "Dockerfile" || "$name" == "skills" || "$name" == "agent_notes.md" || "$name" == "old_rubrics" ]]; then
+  if [[ "$name" == "Dockerfile" || "$name" == "skills" || "$name" == "agent_notes.md" || "$name" == "change_summary.json" || "$name" == "old_rubrics" ]]; then
     continue
   fi
   rm -rf "$entry"
@@ -48,6 +56,7 @@ done
 shopt -u nullglob dotglob
 
 mkdir -p "$TASK_OLD_RUBRICS_DIR"
+touch "$TASK_OLD_RUBRICS_KEEP"
 
 if [[ ! -f "$TASK_AGENT_NOTES_PATH" ]]; then
   cat > "$TASK_AGENT_NOTES_PATH" <<'EOF'
@@ -56,6 +65,12 @@ if [[ ! -f "$TASK_AGENT_NOTES_PATH" ]]; then
 <!-- APPEND_ONLY_TEMPLATE: do not edit or remove this header block. -->
 
 EOF
+fi
+
+if [[ -n "$CHANGE_SUMMARY_SOURCE" ]]; then
+  cp "$CHANGE_SUMMARY_SOURCE" "$TASK_CHANGE_SUMMARY_PATH"
+elif [[ ! -f "$TASK_CHANGE_SUMMARY_PATH" ]]; then
+  echo "[]" > "$TASK_CHANGE_SUMMARY_PATH"
 fi
 
 cp "$RUBRIC_SOURCE" "$TASK_RUBRIC_PATH"
@@ -71,6 +86,7 @@ harbor run \
   --ae ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   --artifact /app/agent_eval.json \
   --artifact /app/agent_notes.md \
+  --artifact /app/change_summary.json \
   --artifact /app/rubric.json \
   --artifact /app/old_rubrics \
   --yes
@@ -79,6 +95,7 @@ python3 - <<'PY'
 import glob
 import json
 import os
+import shutil
 import sys
 
 result_candidates = glob.glob("jobs/*/harbor_rubric_refine_task__*/result.json")
@@ -100,6 +117,7 @@ artifacts_dir = os.path.join(os.path.dirname(latest_result), "artifacts")
 required = [
     os.path.join(artifacts_dir, "agent_eval.json"),
     os.path.join(artifacts_dir, "agent_notes.md"),
+    os.path.join(artifacts_dir, "change_summary.json"),
     os.path.join(artifacts_dir, "rubric.json"),
     os.path.join(artifacts_dir, "old_rubrics"),
 ]
@@ -110,5 +128,24 @@ if missing:
         print(f"- {path}")
     sys.exit(1)
 
+# Also maintain a stable pointer + mirror for downstream tools/UI.
+latest_pointer = os.path.join("jobs", "latest_harbor_rubric_refine_artifacts.txt")
+with open(latest_pointer, "w", encoding="utf-8") as f:
+    f.write(artifacts_dir + "\n")
+
+stable_dir = os.path.join("jobs", "latest_harbor_rubric_refine_artifacts")
+if os.path.exists(stable_dir):
+    shutil.rmtree(stable_dir)
+os.makedirs(stable_dir, exist_ok=True)
+for name in ["agent_eval.json", "agent_notes.md", "change_summary.json", "rubric.json"]:
+    shutil.copy2(os.path.join(artifacts_dir, name), os.path.join(stable_dir, name))
+shutil.copytree(
+    os.path.join(artifacts_dir, "old_rubrics"),
+    os.path.join(stable_dir, "old_rubrics"),
+    dirs_exist_ok=True,
+)
+
 print(f"Refinement artifacts verified in: {artifacts_dir}")
+print(f"Stable artifacts mirror: {stable_dir}")
+print(f"Stable artifacts pointer: {latest_pointer}")
 PY
