@@ -1,13 +1,10 @@
-"""Deterministically judge extracted OpenAI-style messages with llm_api.infer."""
+"""Deterministically judge each item in a JSON list with llm_api.infer."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
-import subprocess
-import sys
-import tempfile
+import re
 from pathlib import Path
 from typing import Any
 
@@ -23,15 +20,18 @@ JUDGE_SYSTEM_PROMPT = (
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run deterministic per-response judging from rubric + parser script."
+        description="Run deterministic judging on each object in a JSON list."
     )
-    parser.add_argument("--responses-json", required=True, help="Path to raw responses JSON.")
-    parser.add_argument("--parser-script", required=True, help="Path to parse_responses.py.")
-    parser.add_argument("--rubric", required=True, help="Path to rubric.txt.")
+    parser.add_argument("--rubric", required=True, help="Path to rubric.json.")
+    parser.add_argument(
+        "--input-json",
+        required=True,
+        help="Path to input JSON file. Must be a top-level list.",
+    )
     parser.add_argument(
         "--output-json",
         required=True,
-        help="Path to write judged responses JSON.",
+        help="Path to write judged outputs JSON.",
     )
     parser.add_argument(
         "--model",
@@ -54,148 +54,144 @@ def _require_file(path_str: str, label: str) -> Path:
     return path
 
 
-def _is_openai_message(obj: Any) -> bool:
-    return isinstance(obj, dict) and "role" in obj and "content" in obj
+def _load_criteria(rubric_path: Path) -> list[dict[str, Any]]:
+    raw = json.loads(rubric_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("rubric.json must be a non-empty JSON list of criteria.")
 
-
-def _normalize_messages_output(raw: Any) -> list[dict[str, Any]]:
-    """
-    Normalize parser output into per-item message blocks.
-
-    Accepted shapes:
-    - [{"role": "...", "content": "..."}]  # one block per message
-    - [[{...}, {...}], ...]                 # one block per list
-    - [{"messages": [{...}, ...]}, ...]     # one block per object
-    """
-    if not isinstance(raw, list):
-        raise ValueError("extracted_messages.json must be a JSON list.")
-
-    normalized: list[dict[str, Any]] = []
+    criteria: list[dict[str, Any]] = []
     for idx, item in enumerate(raw):
-        response_id = str(idx)
-        messages: list[dict[str, Any]] = []
-
-        if _is_openai_message(item):
-            messages = [item]
-        elif isinstance(item, list):
-            if not all(_is_openai_message(x) for x in item):
-                raise ValueError(
-                    f"Item {idx} is a list, but not all entries are OpenAI-style messages."
-                )
-            messages = item
-        elif isinstance(item, dict) and isinstance(item.get("messages"), list):
-            if "response_id" in item:
-                response_id = str(item["response_id"])
-            if not all(_is_openai_message(x) for x in item["messages"]):
-                raise ValueError(
-                    f"Item {idx} has 'messages', but entries are not OpenAI-style messages."
-                )
-            messages = item["messages"]
-        else:
+        if not isinstance(item, dict):
+            raise ValueError(f"rubric[{idx}] must be an object.")
+        if "criterion" not in item or "scale" not in item:
+            raise ValueError(f"rubric[{idx}] must include 'criterion' and 'scale'.")
+        criterion = str(item["criterion"]).strip()
+        scale = item["scale"]
+        if not criterion:
+            raise ValueError(f"rubric[{idx}].criterion must be non-empty.")
+        if (
+            not isinstance(scale, list)
+            or len(scale) != 2
+            or not all(isinstance(x, (int, float)) for x in scale)
+        ):
             raise ValueError(
-                f"Unsupported item shape at index {idx}; expected message, list of messages, or object with 'messages'."
+                f"rubric[{idx}].scale must be [min,max] with numeric values."
             )
-
-        normalized.append({"response_id": response_id, "messages": messages})
-
-    return normalized
-
-
-def _run_parser(parser_script: Path, responses_json: Path) -> list[dict[str, Any]]:
-    with tempfile.TemporaryDirectory() as td:
-        temp_dir = Path(td)
-        temp_parser = temp_dir / "parse_responses.py"
-        temp_input = temp_dir / "responses.json"
-        extracted_path = temp_dir / "extracted_messages.json"
-
-        shutil.copy2(parser_script, temp_parser)
-        shutil.copy2(responses_json, temp_input)
-
-        # Contract expected from the generated parser:
-        #   python3 parse_responses.py
-        # It should read responses.json and write extracted_messages.json.
-        cmd = [sys.executable, str(temp_parser)]
-        result = subprocess.run(cmd, cwd=temp_dir, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(
-                "Parser script failed.\n"
-                f"Command: {' '.join(cmd)}\n"
-                f"stdout:\n{result.stdout}\n"
-                f"stderr:\n{result.stderr}"
-            )
-
-        if result.stdout.strip() or result.stderr.strip():
-            raise RuntimeError(
-                "Parser script produced stdout/stderr output, but it should be silent on success.\n"
-                f"stdout:\n{result.stdout}\n"
-                f"stderr:\n{result.stderr}"
-            )
-
-        if not extracted_path.exists():
-            raise FileNotFoundError(
-                f"Parser did not write expected output file: {extracted_path}"
-            )
-
-        extracted = json.loads(extracted_path.read_text(encoding="utf-8"))
-        return _normalize_messages_output(extracted)
+        min_score = float(scale[0])
+        max_score = float(scale[1])
+        if min_score >= max_score:
+            raise ValueError(f"rubric[{idx}].scale must satisfy min < max.")
+        criteria.append(
+            {"criterion": criterion, "scale": [min_score, max_score]}
+        )
+    return criteria
 
 
-def _messages_to_block_text(messages: list[dict[str, Any]]) -> str:
-    lines = []
-    for msg in messages:
-        role = str(msg.get("role", "")).strip() or "unknown"
-        content = str(msg.get("content", "")).strip()
-        lines.append(f"{role}: {content}")
-    return "\n".join(lines).strip()
-
-
-def _build_user_prompt(rubric: str, message_block_text: str) -> str:
+def _build_reasoning_prompt(criterion: str, scale: list[float], item_text: str) -> str:
     return (
-        "Apply the rubric below to evaluate this single extracted message block.\n\n"
-        "RUBRIC:\n"
+        "You are on turn 1 of 2.\n"
+        "Evaluate this single item for ONE criterion only.\n"
+        "Think step-by-step and provide your reasoning only.\n"
+        "Do not provide a final numeric score yet.\n\n"
+        "CRITERION:\n"
         "-----\n"
-        f"{rubric}\n"
+        f"{criterion}\n"
+        f"Allowed score range: {scale[0]} to {scale[1]}.\n"
         "-----\n\n"
-        "MESSAGE BLOCK TO EVALUATE:\n"
+        "ITEM TO EVALUATE:\n"
         "-----\n"
-        f"{message_block_text}\n"
-        "-----\n\n"
-        "Return JSON only with keys:\n"
-        "- score (number)\n"
-        "- rationale (string)\n"
-        "- rubric_alignment (string)"
+        f"{item_text}\n"
+        "-----\n"
     )
+
+
+def _build_score_prompt(reasoning: str, criterion: str, scale: list[float]) -> str:
+    return (
+        "You are on turn 2 of 2.\n"
+        "Given your prior reasoning below, provide only the final numeric score for this criterion.\n"
+        f"Criterion: {criterion}\n"
+        f"Allowed score range: {scale[0]} to {scale[1]}.\n"
+        "Return exactly one line in this format: SCORE: <number>\n\n"
+        "PRIOR REASONING:\n"
+        "-----\n"
+        f"{reasoning}\n"
+        "-----\n"
+    )
+
+
+def _extract_score(text: str) -> float | None:
+    match = re.search(r"SCORE:\s*(-?\d+(?:\.\d+)?)", text, flags=re.IGNORECASE)
+    if match:
+        return float(match.group(1))
+
+    # Fallback: first numeric token in the response.
+    fallback = re.search(r"-?\d+(?:\.\d+)?", text)
+    if fallback:
+        return float(fallback.group(0))
+    return None
 
 
 def main() -> None:
     args = _parse_args()
-    responses_json = _require_file(args.responses_json, "Responses JSON")
-    parser_script = _require_file(args.parser_script, "Parser script")
     rubric_path = _require_file(args.rubric, "Rubric")
+    input_path = _require_file(args.input_json, "Input JSON")
 
-    rubric_text = rubric_path.read_text(encoding="utf-8").strip()
-    if not rubric_text:
-        raise ValueError(f"Rubric file is empty: {rubric_path}")
+    criteria = _load_criteria(rubric_path)
 
-    parsed = _run_parser(parser_script=parser_script, responses_json=responses_json)
+    raw = json.loads(input_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError("Input JSON must be a top-level list.")
+
     judged: list[dict[str, Any]] = []
+    for idx, item in enumerate(raw):
+        item_text = json.dumps(item, ensure_ascii=False, indent=2)
+        criterion_results: list[dict[str, Any]] = []
+        final_score = 0.0
 
-    for item in parsed:
-        response_id = item["response_id"]
-        messages = item["messages"]
-        message_block_text = _messages_to_block_text(messages)
-        judge_output = infer(
-            model=args.model,
-            system_prompt=JUDGE_SYSTEM_PROMPT,
-            user_prompt=_build_user_prompt(rubric_text, message_block_text),
-            temperature=0.0,
-            top_p=1.0,
-            max_tokens=args.max_tokens,
-        )
+        for criterion_item in criteria:
+            criterion = str(criterion_item["criterion"])
+            scale = criterion_item["scale"]
+            reasoning = infer(
+                model=args.model,
+                system_prompt=JUDGE_SYSTEM_PROMPT,
+                user_prompt=_build_reasoning_prompt(criterion, scale, item_text),
+                temperature=0.0,
+                top_p=1.0,
+                max_tokens=args.max_tokens,
+            )
+            score_raw = infer(
+                model=args.model,
+                system_prompt=JUDGE_SYSTEM_PROMPT,
+                user_prompt=_build_score_prompt(reasoning, criterion, scale),
+                temperature=0.0,
+                top_p=1.0,
+                max_tokens=80,
+            )
+            score = _extract_score(score_raw)
+            if score is None:
+                score = 0.0
+            # Enforce declared scale bounds.
+            score = max(float(scale[0]), min(float(scale[1]), float(score)))
+            final_score += score
+
+            criterion_results.append(
+                {
+                    "criterion": criterion,
+                    "scale": scale,
+                    "reasoning": reasoning.strip(),
+                    "score": score,
+                    "score_raw": score_raw.strip(),
+                }
+            )
+
+        judge_output = {
+            "criteria_results": criterion_results,
+            "final_score": final_score,
+        }
         judged.append(
             {
-                "response_id": response_id,
-                "messages": messages,
+                "item_index": idx,
+                "item": item,
                 "judge_output": judge_output,
             }
         )

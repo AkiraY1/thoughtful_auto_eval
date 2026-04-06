@@ -27,7 +27,7 @@ if [[ -z "${ANTHROPIC_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" ]]; then
   exit 1
 fi
 
-python3 src/deterministic_judge_list.py \
+python3 src/deterministic_judge.py \
   --rubric "$RUBRIC_PATH" \
   --input-json "$INPUT_JSON_PATH" \
   --output-json "$OUTPUT_JSON_PATH" \
