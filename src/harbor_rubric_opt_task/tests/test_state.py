@@ -15,3 +15,8 @@ def test_rubric_file_exists():
 def test_parser_script_exists():
     parser_path = Path("/app/parse_responses.py")
     assert parser_path.exists(), f"Missing file: {parser_path}"
+
+
+def test_extracted_messages_file_exists():
+    extracted_path = Path("/app/extracted_messages.json")
+    assert extracted_path.exists(), f"Missing file: {extracted_path}"
