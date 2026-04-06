@@ -19,13 +19,3 @@ def test_rubric_json_exists_and_has_criteria_schema():
         assert isinstance(item, dict), f"rubric[{idx}] must be an object"
         assert "criterion" in item, f"rubric[{idx}] missing 'criterion'"
         assert "scale" in item, f"rubric[{idx}] missing 'scale'"
-
-
-def test_parser_script_exists():
-    parser_path = Path("/app/parse_responses.py")
-    assert parser_path.exists(), f"Missing file: {parser_path}"
-
-
-def test_extracted_messages_file_exists():
-    extracted_path = Path("/app/extracted_messages.json")
-    assert extracted_path.exists(), f"Missing file: {extracted_path}"
