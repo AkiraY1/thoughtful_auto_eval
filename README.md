@@ -1,22 +1,18 @@
-# Thoughtful Auto Eval
+# Thoughtful Auto-Eval
 
 ## Table of Contents
 
-- [Work Trial Task](#work-trial-task)
-- [Directory / Files Structure](#directory--files-structure)
+- [Task Description](#task-description)
+- [File Structure](#file-structure)
 - [Methods](#methods)
-- [Improvements on These Methods](#improvements-on-these-methods)
-- [Ideas to Bypass Auto-Eval for Training Models](#ideas-to-bypass-auto-eval-for-training-models)
-- [Demo Videos](#demo-videos)
-- [How to Run](#how-to-run)
+- [Usage](#usage)
   - [Prerequisites](#prerequisites)
-  - [V1 (CLI): Single-pass rubric creation](#v1-cli-single-pass-rubric-creation)
-  - [V2 (CLI): Iterative rubric optimization](#v2-cli-iterative-rubric-optimization)
-  - [Streamlit Demo: V1](#streamlit-demo-v1)
-  - [Streamlit Demo: V2](#streamlit-demo-v2)
-- [Notes](#notes)
+  - [v1: Single-pass rubric creation](#v1-single-pass-rubric-creation)
+  - [v2: Iterative rubric optimization](#v2-iterative-rubric-optimization)
+- [Possible Improvements](#possible-improvements)
+- [Auto-Eval Alternatives](#auto-eval-alternatives)
 
-## Work Trial Task
+## Task Description
 
 Create an auto-eval system with x inputs and y inputs.
 
@@ -24,66 +20,33 @@ Current practical framing in this repo:
 - **Input:** a `systemPrompt.txt` plus evaluation data (JSON responses/messages).
 - **Output:** an evaluation rubric and (optionally) an iteratively refined rubric loop that improves judging quality.
 
-## Directory / Files Structure
+## File Structure
 
 ```text
 thoughtful_auto_eval/
 ├── README.md
 ├── pyproject.toml
-├── streamlit_app_rubric_simple.py         # V1 UI (single-pass rubric creation)
-├── streamlit_app_rubric_opt.py            # V2 UI (iterative optimization loop)
+├── streamlit_app_rubric_simple.py         # v1 streamlit app
+├── streamlit_app_rubric_opt.py            # v2 streamlit app
 ├── harbor_scripts/
-│   ├── run_rubric_task.sh                 # V1 CLI entrypoint
-│   ├── run_rubric_opt_task.sh             # V2 CLI entrypoint
+│   ├── run_rubric_task.sh                 # v1 entrypoint
+│   ├── run_rubric_opt_task.sh             # v2 entrypoint
 │   ├── run_rubric_refine_task.sh          # refinement sub-step
-│   ├── run_deterministic_judge_list.sh    # deterministic rubric judging
+│   ├── run_deterministic_judge_list.sh    # llm judge sub-step
 │   └── run_smoketest.sh
 ├── eval_data/
 │   ├── cognition/
-│   │   └── systemPrompt.txt
 │   └── listen_labs/
-│       ├── systemPrompt.txt
-│       ├── eval_dataset_full.json
-│       ├── eval_dataset_mini.json
-│       └── judge_rubric.txt
 ├── src/
 │   ├── llm_api.py
 │   ├── deterministic_judge.py
 │   ├── summarize_judge_output.py
 │   ├── rubric_creation.py
-│   ├── harbor_rubric_task/                # V1 Harbor task (rubric creation)
-│   │   ├── instruction.md
-│   │   ├── task.toml
-│   │   ├── environment/
-│   │   │   ├── Dockerfile
-│   │   │   └── skills/rubric_creation/SKILL.md
-│   │   └── tests/
-│   ├── harbor_rubric_opt_task/            # V2 Harbor task (create + optimize)
-│   │   ├── instruction.md
-│   │   ├── task.toml
-│   │   ├── environment/
-│   │   │   ├── Dockerfile
-│   │   │   ├── system_prompt.txt
-│   │   │   ├── responses.json
-│   │   │   ├── llm_api.py
-│   │   │   └── skills/rubric_creation/SKILL.md
-│   │   └── tests/
-│   ├── harbor_rubric_refine_task/         # rubric refinement task
-│   │   ├── instruction.md
-│   │   ├── task.toml
-│   │   ├── environment/
-│   │   │   ├── Dockerfile
-│   │   │   ├── rubric.json
-│   │   │   ├── responses.json
-│   │   │   ├── output.json
-│   │   │   ├── change_summary.json
-│   │   │   ├── agent_notes.md
-│   │   │   ├── old_rubrics/
-│   │   │   └── skills/rubric_refinement/SKILL.md
-│   │   └── tests/
-│   └── harbor_rubric_judge_task/
-│       └── solution/
-└── jobs/                                   # run artifacts/logs (generated)
+│   ├── harbor_rubric_task/                # v1 Harbor task
+│   ├── harbor_rubric_opt_task/            # v2 Harbor task
+│   ├── harbor_rubric_refine_task/         # refinement sub-step Harbor task
+│   └── harbor_rubric_judge_task/          # judge sub-step Harbor task
+└── jobs/                                  # generated Harbor artifacts/logs
 ```
 
 ## Methods
@@ -104,14 +67,14 @@ Three methods:
    - Agent analyzes the system prompt and designs a multi-agent evaluation system.
    - Principles/patterns for system design are injected via files.
 
-## Improvements on These Methods
+## Possible Improvements
 
 - Compare responses from multiple LLM judge models and choose the strongest judge.
 - Add a diff agent dedicated to summarizing differences between agent and judge outputs.
 - Explicitly separate **evidence extraction** from **scoring**.
 - Speed improvements (current pipeline is too slow).
 
-## Ideas to Bypass Auto-Eval for Training Models
+## Auto-Eval Alternatives
 
 - DSPy prompt optimization.
 - Text-to-LoRA.
@@ -119,17 +82,13 @@ Three methods:
 
 ## Demo Videos
 
-<p align="center" width="100%">
-<video src="https://github.com/AkiraY1/thoughtful_auto_eval/blob/main/assets/demo_v2_part2.mp4" width="80%" controls></video>
-</p>
-
-![V2 Demo Part 1](assets/demo_v2_part1.gif)
-![V2 Demo Part 2](assets/demo_v2_part2.gif)
+![v2 Demo Part 1](assets/demo_v2_part1.gif)
+![v2 Demo Part 2](assets/demo_v2_part2.gif)
 
 > Note: GitHub README pages do not consistently support inline MP4 playback.  
-> Use the links above to open each video.
+> Use GIFs in README and keep MP4 files in `assets/` as high-quality sources.
 
-## How to Run
+## Usage
 
 ### Prerequisites
 
@@ -145,7 +104,7 @@ Install dependencies:
 uv sync
 ```
 
-### V1 (CLI): Single-pass rubric creation
+### v1: Single-pass rubric creation
 
 ```bash
 ./harbor_scripts/run_rubric_task.sh eval_data/listen_labs/systemPrompt.txt
@@ -156,7 +115,7 @@ What it does:
 - Runs Harbor on `src/harbor_rubric_task`.
 - Produces rubric artifact(s) in `jobs/**/artifacts/rubric.txt`.
 
-### V2 (CLI): Iterative rubric optimization
+### v2: Iterative rubric optimization
 
 ```bash
 ./harbor_scripts/run_rubric_opt_task.sh \
@@ -190,13 +149,13 @@ export RUBRIC_REFINE_MODEL=anthropic/claude-sonnet-4-6
 Final optimized rubric is written to:
 - `jobs/**/harbor_rubric_opt_task__*/artifacts/optimization_loop/final/rubric.json`
 
-### Streamlit Demo: V1
+### Streamlit Demo: v1
 
 ```bash
 uv run streamlit run streamlit_app_rubric_simple.py
 ```
 
-### Streamlit Demo: V2
+### Streamlit Demo: v2
 
 ```bash
 uv run streamlit run streamlit_app_rubric_opt.py
@@ -204,5 +163,5 @@ uv run streamlit run streamlit_app_rubric_opt.py
 
 ## Notes
 
-- `eval_data/<task>/` should contain a `systemPrompt.txt` and (for V2) JSON response data.
+- `eval_data/<task>/` should contain a `systemPrompt.txt` and (for v2) JSON response data.
 - Keep rubric logic modular through skill files so rubric principles can be swapped quickly.
