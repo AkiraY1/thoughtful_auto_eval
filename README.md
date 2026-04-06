@@ -1,5 +1,12 @@
 # Thoughtful Auto-Eval
 
+## Demo Videos
+
+<p align="center">
+  <img src="assets/demo_v2_part1.gif" alt="v2 Demo Part 1" width="49%" />
+  <img src="assets/demo_v2_part2.gif" alt="v2 Demo Part 2" width="49%" />
+</p>
+
 ## Table of Contents
 
 - [Task Description](#task-description)
@@ -80,14 +87,6 @@ Three methods:
 - Text-to-LoRA.
 - Self-distillation with LLM feedback.
 
-## Demo Videos
-
-![v2 Demo Part 1](assets/demo_v2_part1.gif)
-![v2 Demo Part 2](assets/demo_v2_part2.gif)
-
-> Note: GitHub README pages do not consistently support inline MP4 playback.  
-> Use GIFs in README and keep MP4 files in `assets/` as high-quality sources.
-
 ## Usage
 
 ### Prerequisites
@@ -125,8 +124,11 @@ What it does:
 ```
 
 Optional args:
-- arg4: rubric creation skill override (`.md`)
-- arg5: rubric refinement skill override (`.md`)
+- full-dataset local eval mode (runs only after final optimized rubric):
+  - arg3: `full_eval_responses.json` (same schema as `responses.json`, usually larger)
+- arg4: iterations (default `1`)
+- arg5: rubric creation skill override (`.md`)
+- arg6: rubric refinement skill override (`.md`)
 
 Example with overrides:
 
@@ -137,6 +139,16 @@ Example with overrides:
   3 \
   src/harbor_rubric_opt_task/environment/skills/rubric_creation/SKILL.md \
   src/harbor_rubric_refine_task/environment/skills/rubric_refinement/SKILL.md
+```
+
+Example with final full-dataset local eval and no skill overrides:
+
+```bash
+./harbor_scripts/run_rubric_opt_task.sh \
+  eval_data/listen_labs/systemPrompt.txt \
+  eval_data/listen_labs/eval_dataset_mini.json \
+  eval_data/listen_labs/eval_dataset_full.json \
+  3
 ```
 
 Model selection:
