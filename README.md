@@ -1,5 +1,21 @@
 # Thoughtful Auto Eval
 
+## Table of Contents
+
+- [Work Trial Task](#work-trial-task)
+- [Directory / Files Structure](#directory--files-structure)
+- [Methods](#methods)
+- [Improvements on These Methods](#improvements-on-these-methods)
+- [Ideas to Bypass Auto-Eval for Training Models](#ideas-to-bypass-auto-eval-for-training-models)
+- [Demo Videos](#demo-videos)
+- [How to Run](#how-to-run)
+  - [Prerequisites](#prerequisites)
+  - [V1 (CLI): Single-pass rubric creation](#v1-cli-single-pass-rubric-creation)
+  - [V2 (CLI): Iterative rubric optimization](#v2-cli-iterative-rubric-optimization)
+  - [Streamlit Demo: V1](#streamlit-demo-v1)
+  - [Streamlit Demo: V2](#streamlit-demo-v2)
+- [Notes](#notes)
+
 ## Work Trial Task
 
 Create an auto-eval system with x inputs and y inputs.
@@ -104,14 +120,16 @@ Three methods:
 ## Demo Videos
 
 ### V2 Demo - Part 1
-<video src="assets/demo_v2_part1.mp4" controls width="900"></video>
-
-[Download Part 1](assets/demo_v2_part1.mp4)
+<video width="900" controls preload="metadata">
+  <source src="assets/demo_v2_part1.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 ### V2 Demo - Part 2
-<video src="assets/demo_v2_part2.mp4" controls width="900"></video>
-
-[Download Part 2](assets/demo_v2_part2.mp4)
+<video width="900" controls preload="metadata">
+  <source src="assets/demo_v2_part2.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 ## How to Run
 
