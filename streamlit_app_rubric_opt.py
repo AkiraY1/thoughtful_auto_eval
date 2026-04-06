@@ -169,9 +169,6 @@ def main() -> None:
             "Run rubric_opt_task", type="primary", use_container_width=True
         )
 
-        st.subheader("Logs")
-        logs_placeholder = st.empty()
-
     with right_col:
         st.subheader("Optimization Progress")
         progress_placeholder = st.empty()
@@ -259,8 +256,6 @@ def main() -> None:
 
         def _on_output_line(line: str) -> None:
             log_lines.append(line)
-            # Keep UI concise: show the latest chunk of logs.
-            logs_placeholder.code("\n".join(log_lines[-120:]) or "Starting...")
 
         def _on_iteration_complete() -> None:
             nonlocal completed_iterations
