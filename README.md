@@ -120,7 +120,7 @@ Three methods:
 ## Demo Videos
 
 <p align="center" width="100%">
-<video src="assets/demo_v2_part1.mp4" width="80%" controls></video>
+<video src="https://github.com/AkiraY1/thoughtful_auto_eval/blob/main/assets/demo_v2_part2.mp4" width="80%" controls></video>
 </p>
 
 ### V2 Demo - Part 1
