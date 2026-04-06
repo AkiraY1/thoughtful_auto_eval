@@ -136,4 +136,14 @@ echo "Running deterministic judge with rubric: $LATEST_RUBRIC_ARTIFACT"
   "$RESPONSES_JSON_SOURCE" \
   "$JUDGE_OUTPUT_PATH"
 
+echo "Summarizing deterministic judge output into: $JUDGE_OUTPUT_PATH"
+python3 src/summarize_judge_output.py --output-json "$JUDGE_OUTPUT_PATH"
+
+echo "Running Harbor refinement task"
+./harbor_scripts/run_rubric_refine_task.sh \
+  "$LATEST_RUBRIC_ARTIFACT" \
+  "$RESPONSES_JSON_SOURCE" \
+  "$JUDGE_OUTPUT_PATH"
+
 echo "Deterministic judge output written to: $JUDGE_OUTPUT_PATH"
+echo "Rubric refinement Harbor task completed."
