@@ -12,6 +12,9 @@ You must produce these files:
    - Archive the old rubric in chronological version order (`v0`, `v1`, `v2`, ...).
 4. Updated `rubric.json`
    - Refine the rubric to better match your notes.
+5. `change_summary.json`
+   - Append a new entry for this refinement iteration.
+   - Entry must contain 2-3 succinct bullet points describing the most important rubric changes.
 
 Requirements:
 - Use installed skills to improve rigor and consistency.
@@ -19,3 +22,4 @@ Requirements:
 - Ensure the archived file is inside `old_rubrics/`.
 - `agent_notes.md` must remain append-only relative to the initial template provided in `/app/agent_notes.md`.
 - Before making rubric changes, read the existing `agent_notes.md` content to understand prior analysis and decisions, then append your new findings after that context.
+- `change_summary.json` is append-only across iterations: preserve existing entries and append one new summary entry for the current iteration.
