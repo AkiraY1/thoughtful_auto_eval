@@ -17,7 +17,7 @@ SYSTEM_PROMPT_SOURCE="$1"
 RESPONSES_JSON_SOURCE="$2"
 LLM_API_SOURCE="src/llm_api.py"
 
-TASK_DIR="src/harbor_rubric_judge_task/environment"
+TASK_DIR="src/harbor_rubric_opt_task/environment"
 TASK_PROMPT_PATH="$TASK_DIR/system_prompt.txt"
 TASK_RESPONSES_PATH="$TASK_DIR/responses.json"
 TASK_LLM_API_PATH="$TASK_DIR/llm_api.py"
@@ -89,7 +89,7 @@ cp "$LLM_API_SOURCE" "$TASK_LLM_API_PATH"
 
 HARBOR_ARGS=(
   run
-  -p src/harbor_rubric_judge_task
+  -p src/harbor_rubric_opt_task
   --env modal
   --force-build
   --agent claude-code
