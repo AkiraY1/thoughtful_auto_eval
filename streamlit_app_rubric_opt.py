@@ -268,6 +268,7 @@ def main() -> None:
 
         log_lines: list[str] = []
         completed_iterations = 0
+        rubric_panel_refresh_count = 0
         start_ts = time.time()
         progress_placeholder.info("Run started. Waiting for iteration updates...")
         progress_bar = progress_bar_placeholder.progress(0.0)
@@ -294,6 +295,8 @@ def main() -> None:
             )
 
         def _refresh_right_panel() -> None:
+            nonlocal rubric_panel_refresh_count
+            rubric_panel_refresh_count += 1
             change_summary = _get_latest_change_summary()
             if change_summary is not None:
                 with change_summary_placeholder.container():
@@ -340,8 +343,8 @@ def main() -> None:
                         st.text_area(
                             label=f"{iter_dir.name} rubric",
                             value=before_text,
-                            height=240,
-                            key=f"before_refine_{iter_dir.name}",
+                            height=140,
+                            key=f"before_refine_{iter_dir.name}_{rubric_panel_refresh_count}",
                             disabled=True,
                             label_visibility="collapsed",
                         )
