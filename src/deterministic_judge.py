@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import re
 from pathlib import Path
@@ -43,6 +44,12 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=700,
         help="Max generation tokens per judgment.",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=6,
+        help="Number of items to judge in parallel (default: 6).",
     )
     return parser.parse_args()
 
@@ -131,6 +138,65 @@ def _extract_score(text: str) -> float | None:
     return None
 
 
+def _judge_single_item(
+    idx: int,
+    item: Any,
+    *,
+    criteria: list[dict[str, Any]],
+    model: str,
+    max_tokens: int,
+) -> dict[str, Any]:
+    item_text = json.dumps(item, ensure_ascii=False, indent=2)
+    criterion_results: list[dict[str, Any]] = []
+    final_score = 0.0
+
+    for criterion_item in criteria:
+        criterion = str(criterion_item["criterion"])
+        scale = criterion_item["scale"]
+        reasoning = infer(
+            model=model,
+            system_prompt=JUDGE_SYSTEM_PROMPT,
+            user_prompt=_build_reasoning_prompt(criterion, scale, item_text),
+            temperature=0.0,
+            top_p=1.0,
+            max_tokens=max_tokens,
+        )
+        score_raw = infer(
+            model=model,
+            system_prompt=JUDGE_SYSTEM_PROMPT,
+            user_prompt=_build_score_prompt(reasoning, criterion, scale),
+            temperature=0.0,
+            top_p=1.0,
+            max_tokens=80,
+        )
+        score = _extract_score(score_raw)
+        if score is None:
+            score = 0.0
+        # Enforce declared scale bounds.
+        score = max(float(scale[0]), min(float(scale[1]), float(score)))
+        final_score += score
+
+        criterion_results.append(
+            {
+                "criterion": criterion,
+                "scale": scale,
+                "reasoning": reasoning.strip(),
+                "score": score,
+                "score_raw": score_raw.strip(),
+            }
+        )
+
+    judge_output = {
+        "criteria_results": criterion_results,
+        "final_score": final_score,
+    }
+    return {
+        "item_index": idx,
+        "item": item,
+        "judge_output": judge_output,
+    }
+
+
 def main() -> None:
     args = _parse_args()
     rubric_path = _require_file(args.rubric, "Rubric")
@@ -142,59 +208,25 @@ def main() -> None:
     if not isinstance(raw, list):
         raise ValueError("Input JSON must be a top-level list.")
 
-    judged: list[dict[str, Any]] = []
-    for idx, item in enumerate(raw):
-        item_text = json.dumps(item, ensure_ascii=False, indent=2)
-        criterion_results: list[dict[str, Any]] = []
-        final_score = 0.0
-
-        for criterion_item in criteria:
-            criterion = str(criterion_item["criterion"])
-            scale = criterion_item["scale"]
-            reasoning = infer(
+    max_workers = max(1, min(args.max_workers, len(raw) if raw else 1))
+    judged_by_index: dict[int, dict[str, Any]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_idx = {
+            executor.submit(
+                _judge_single_item,
+                idx,
+                item,
+                criteria=criteria,
                 model=args.model,
-                system_prompt=JUDGE_SYSTEM_PROMPT,
-                user_prompt=_build_reasoning_prompt(criterion, scale, item_text),
-                temperature=0.0,
-                top_p=1.0,
                 max_tokens=args.max_tokens,
-            )
-            score_raw = infer(
-                model=args.model,
-                system_prompt=JUDGE_SYSTEM_PROMPT,
-                user_prompt=_build_score_prompt(reasoning, criterion, scale),
-                temperature=0.0,
-                top_p=1.0,
-                max_tokens=80,
-            )
-            score = _extract_score(score_raw)
-            if score is None:
-                score = 0.0
-            # Enforce declared scale bounds.
-            score = max(float(scale[0]), min(float(scale[1]), float(score)))
-            final_score += score
-
-            criterion_results.append(
-                {
-                    "criterion": criterion,
-                    "scale": scale,
-                    "reasoning": reasoning.strip(),
-                    "score": score,
-                    "score_raw": score_raw.strip(),
-                }
-            )
-
-        judge_output = {
-            "criteria_results": criterion_results,
-            "final_score": final_score,
+            ): idx
+            for idx, item in enumerate(raw)
         }
-        judged.append(
-            {
-                "item_index": idx,
-                "item": item,
-                "judge_output": judge_output,
-            }
-        )
+        for future in concurrent.futures.as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            judged_by_index[idx] = future.result()
+
+    judged = [judged_by_index[idx] for idx in sorted(judged_by_index)]
 
     output_path = Path(args.output_json).expanduser()
     output_path.parent.mkdir(parents=True, exist_ok=True)
