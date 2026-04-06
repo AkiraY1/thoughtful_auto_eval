@@ -21,6 +21,10 @@ def test_agent_notes_exists():
     assert Path("/app/agent_notes.md").exists()
 
 
+def test_change_summary_exists():
+    assert Path("/app/change_summary.json").exists()
+
+
 def test_agent_notes_append_only():
     notes_path = Path("/app/agent_notes.md")
     content = notes_path.read_text(encoding="utf-8")
