@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Suppress noisy upstream deprecation warnings from Harbor/Modal internals.
+export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore::PendingDeprecationWarning}"
+
 if [[ $# -lt 3 || $# -gt 4 ]]; then
   echo "Usage: $0 /path/to/rubric.json /path/to/responses.json /path/to/output.json [change_summary.json]"
   exit 1

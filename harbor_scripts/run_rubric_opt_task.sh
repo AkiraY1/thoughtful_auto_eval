@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Suppress noisy upstream deprecation warnings from Harbor/Modal internals.
+export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore::PendingDeprecationWarning}"
+
 if [[ $# -lt 2 || $# -gt 3 ]]; then
   echo "Usage: $0 /path/to/systemPrompt.txt /path/to/responses.json [iterations]"
   exit 1
