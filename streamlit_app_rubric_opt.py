@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any, Callable
 
 import streamlit as st
 
@@ -12,6 +13,7 @@ import streamlit as st
 REPO_ROOT = Path(__file__).resolve().parent
 RUN_SCRIPT = REPO_ROOT / "harbor_scripts" / "run_rubric_opt_task.sh"
 JOBS_DIR = REPO_ROOT / "jobs"
+STABLE_REFINE_DIR = JOBS_DIR / "latest_harbor_rubric_refine_artifacts"
 
 
 def _list_final_optimized_rubrics() -> set[Path]:
@@ -24,9 +26,26 @@ def _list_final_optimized_rubrics() -> set[Path]:
     )
 
 
+def _read_json(path: Path) -> Any | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _get_latest_change_summary() -> Any | None:
+    return _read_json(STABLE_REFINE_DIR / "change_summary.json")
+
+
 def run_rubric_opt_task(
-    system_prompt: str, dataset_bytes: bytes, iterations: int
-) -> tuple[str | None, str]:
+    system_prompt: str,
+    dataset_bytes: bytes,
+    iterations: int,
+    on_output_line: Callable[[str], None] | None = None,
+    on_iteration_complete: Callable[[], None] | None = None,
+) -> tuple[str | None, Any | None, str]:
     if not RUN_SCRIPT.exists():
         return None, f"Missing run script: {RUN_SCRIPT}"
 
@@ -43,19 +62,29 @@ def run_rubric_opt_task(
         prompt_path.write_text(system_prompt, encoding="utf-8")
         dataset_path.write_bytes(dataset_bytes)
 
-        completed = subprocess.run(
-            [str(RUN_SCRIPT), str(prompt_path), str(dataset_path), str(iterations)],
+        cmd = [str(RUN_SCRIPT), str(prompt_path), str(dataset_path), str(iterations)]
+        process = subprocess.Popen(
+            cmd,
             cwd=REPO_ROOT,
             text=True,
-            capture_output=True,
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
         )
+        assert process.stdout is not None
+        output_lines: list[str] = []
+        for line in process.stdout:
+            stripped = line.rstrip("\n")
+            output_lines.append(stripped)
+            if on_output_line is not None:
+                on_output_line(stripped)
+            if "] Completed." in stripped and on_iteration_complete is not None:
+                on_iteration_complete()
+        process.wait()
 
-    if completed.returncode != 0:
-        output = "\n".join(
-            part for part in [completed.stdout.strip(), completed.stderr.strip()] if part
-        )
-        return None, output or "Task failed with no output."
+    if process.returncode != 0:
+        output = "\n".join(output_lines).strip()
+        return None, None, output or "Task failed with no output."
 
     after = _list_final_optimized_rubrics()
     new_artifacts = sorted(after - before, key=lambda p: p.stat().st_mtime, reverse=True)
@@ -67,17 +96,22 @@ def run_rubric_opt_task(
         rubric_path = max(after, key=lambda p: p.stat().st_mtime)
 
     if rubric_path is None:
-        return None, "Task completed, but no refined rubric artifact was found in jobs/."
+        return (
+            None,
+            None,
+            "Task completed, but no refined rubric artifact was found in jobs/.",
+        )
 
     try:
         rubric_text = rubric_path.read_text(encoding="utf-8")
         # Validate JSON shape lightly before showing.
         parsed = json.loads(rubric_text)
         if not isinstance(parsed, list):
-            return None, f"Refined rubric exists but is not a JSON list: {rubric_path}"
-        return json.dumps(parsed, indent=2), ""
+            return None, None, f"Refined rubric exists but is not a JSON list: {rubric_path}"
+        final_change_summary = _read_json(rubric_path.with_name("change_summary.json"))
+        return json.dumps(parsed, indent=2), final_change_summary, ""
     except (OSError, json.JSONDecodeError) as exc:
-        return None, f"Could not read refined rubric JSON: {exc}"
+        return None, None, f"Could not read refined rubric JSON: {exc}"
 
 
 def main() -> None:
@@ -125,9 +159,28 @@ def main() -> None:
             st.error("Uploaded JSON file is empty.")
             return
 
+        logs_placeholder = st.empty()
+        summary_placeholder = st.empty()
+        log_lines: list[str] = []
+
+        def _on_output_line(line: str) -> None:
+            log_lines.append(line)
+            # Keep UI concise: show the latest chunk of logs.
+            logs_placeholder.code("\n".join(log_lines[-120:]) or "Starting...")
+
+        def _on_iteration_complete() -> None:
+            summary = _get_latest_change_summary()
+            if summary is not None:
+                summary_placeholder.subheader("Change Summary (live)")
+                summary_placeholder.json(summary)
+
         with st.spinner("Running rubric_opt_task pipeline... this can take a while."):
-            rubric_json_text, error = run_rubric_opt_task(
-                prompt, dataset_bytes, int(iterations)
+            rubric_json_text, final_change_summary, error = run_rubric_opt_task(
+                prompt,
+                dataset_bytes,
+                int(iterations),
+                on_output_line=_on_output_line,
+                on_iteration_complete=_on_iteration_complete,
             )
 
         if error:
@@ -138,6 +191,9 @@ def main() -> None:
         st.success("Optimized rubric generated.")
         st.subheader("Optimized rubric.json (raw)")
         st.code(rubric_json_text or "", language="json")
+        if final_change_summary is not None:
+            st.subheader("Final change_summary.json")
+            st.json(final_change_summary)
 
 
 if __name__ == "__main__":
