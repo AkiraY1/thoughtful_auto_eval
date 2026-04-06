@@ -112,9 +112,28 @@ HARBOR_ARGS=(
   --model anthropic/claude-opus-4-1
   --ae ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
   --artifact /app/rubric.json
-  --artifact /app/parse_responses.py
-  --artifact /app/extracted_messages.json
   --yes
 )
 
 harbor "${HARBOR_ARGS[@]}"
+
+# Run deterministic judging immediately after Harbor completes.
+LATEST_RUBRIC_ARTIFACT="$(
+  ls -t jobs/*/harbor_rubric_opt_task__*/artifacts/rubric.json 2>/dev/null | head -n 1
+)"
+
+if [[ -z "${LATEST_RUBRIC_ARTIFACT:-}" ]]; then
+  echo "Could not find rubric artifact after Harbor run."
+  exit 1
+fi
+
+LATEST_ARTIFACTS_DIR="$(dirname "$LATEST_RUBRIC_ARTIFACT")"
+JUDGE_OUTPUT_PATH="$LATEST_ARTIFACTS_DIR/output.json"
+
+echo "Running deterministic judge with rubric: $LATEST_RUBRIC_ARTIFACT"
+./harbor_scripts/run_deterministic_judge_list.sh \
+  "$LATEST_RUBRIC_ARTIFACT" \
+  "$RESPONSES_JSON_SOURCE" \
+  "$JUDGE_OUTPUT_PATH"
+
+echo "Deterministic judge output written to: $JUDGE_OUTPUT_PATH"
