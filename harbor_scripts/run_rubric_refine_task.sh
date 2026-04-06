@@ -32,6 +32,7 @@ RUBRIC_SOURCE="$1"
 RESPONSES_SOURCE="$2"
 JUDGE_OUTPUT_SOURCE="$3"
 CHANGE_SUMMARY_SOURCE="${4:-}"
+MODEL_NAME="${RUBRIC_REFINE_MODEL:-anthropic/claude-sonnet-4-6}"
 
 TASK_DIR="src/harbor_rubric_refine_task/environment"
 TASK_RUBRIC_PATH="$TASK_DIR/rubric.json"
@@ -56,6 +57,12 @@ fi
 
 if [[ ! -d "$TASK_DIR" ]]; then
   echo "Task environment directory not found: $TASK_DIR"
+  exit 1
+fi
+
+if [[ "$MODEL_NAME" != "anthropic/claude-sonnet-4-6" && "$MODEL_NAME" != "anthropic/claude-opus-4-1" ]]; then
+  echo "Unsupported RUBRIC_REFINE_MODEL: $MODEL_NAME"
+  echo "Allowed: anthropic/claude-sonnet-4-6, anthropic/claude-opus-4-1"
   exit 1
 fi
 
@@ -105,7 +112,7 @@ harbor run \
   -p src/harbor_rubric_refine_task \
   --env modal \
   --agent claude-code \
-  --model anthropic/claude-opus-4-1 \
+  --model "$MODEL_NAME" \
   --ae ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
   --artifact /app/agent_eval.json \
   --artifact /app/agent_notes.md \

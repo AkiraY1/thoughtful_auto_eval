@@ -16,8 +16,8 @@ print_sha256() {
   fi
 }
 
-if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "Usage: $0 /path/to/systemPrompt.txt /path/to/responses.json [iterations]"
+if [[ $# -lt 2 || $# -gt 5 ]]; then
+  echo "Usage: $0 /path/to/systemPrompt.txt /path/to/responses.json [iterations] [rubric_creation_skill.md] [rubric_refinement_skill.md]"
   exit 1
 fi
 
@@ -32,9 +32,18 @@ SYSTEM_PROMPT_SOURCE="$1"
 RESPONSES_JSON_SOURCE="$2"
 ITERATIONS="${3:-1}"
 LLM_API_SOURCE="src/llm_api.py"
+RUBRIC_CREATION_SKILL_OVERRIDE="${4:-}"
+RUBRIC_REFINEMENT_SKILL_OVERRIDE="${5:-}"
+MODEL_NAME="${RUBRIC_OPT_MODEL:-anthropic/claude-sonnet-4-6}"
 
 if ! [[ "$ITERATIONS" =~ ^[0-9]+$ ]] || [[ "$ITERATIONS" -lt 1 ]]; then
   echo "iterations must be a positive integer. Got: $ITERATIONS"
+  exit 1
+fi
+
+if [[ "$MODEL_NAME" != "anthropic/claude-sonnet-4-6" && "$MODEL_NAME" != "anthropic/claude-opus-4-1" ]]; then
+  echo "Unsupported RUBRIC_OPT_MODEL: $MODEL_NAME"
+  echo "Allowed: anthropic/claude-sonnet-4-6, anthropic/claude-opus-4-1"
   exit 1
 fi
 
@@ -42,8 +51,10 @@ TASK_DIR="src/harbor_rubric_opt_task/environment"
 TASK_PROMPT_PATH="$TASK_DIR/system_prompt.txt"
 TASK_RESPONSES_PATH="$TASK_DIR/responses.json"
 TASK_LLM_API_PATH="$TASK_DIR/llm_api.py"
+TASK_RUBRIC_CREATION_SKILL_PATH="$TASK_DIR/skills/rubric_creation/SKILL.md"
 REFINE_TASK_DIR="src/harbor_rubric_refine_task/environment"
 REFINE_OLD_RUBRICS_DIR="$REFINE_TASK_DIR/old_rubrics"
+REFINE_RUBRIC_SKILL_PATH="$REFINE_TASK_DIR/skills/rubric_refinement/SKILL.md"
 LATEST_REFINE_ARTIFACTS_DIR="jobs/latest_harbor_rubric_refine_artifacts"
 LATEST_REFINE_ARTIFACTS_POINTER="jobs/latest_harbor_rubric_refine_artifacts.txt"
 
@@ -54,6 +65,16 @@ fi
 
 if [[ ! -d "$REFINE_TASK_DIR" ]]; then
   echo "Refine task environment directory not found: $REFINE_TASK_DIR"
+  exit 1
+fi
+
+if [[ -n "$RUBRIC_CREATION_SKILL_OVERRIDE" && ! -f "$RUBRIC_CREATION_SKILL_OVERRIDE" ]]; then
+  echo "Rubric creation skill override not found: $RUBRIC_CREATION_SKILL_OVERRIDE"
+  exit 1
+fi
+
+if [[ -n "$RUBRIC_REFINEMENT_SKILL_OVERRIDE" && ! -f "$RUBRIC_REFINEMENT_SKILL_OVERRIDE" ]]; then
+  echo "Rubric refinement skill override not found: $RUBRIC_REFINEMENT_SKILL_OVERRIDE"
   exit 1
 fi
 
@@ -97,10 +118,14 @@ fi
 TASK_PROMPT_BACKUP="$(mktemp)"
 TASK_RESPONSES_BACKUP="$(mktemp)"
 TASK_LLM_API_BACKUP="$(mktemp)"
+TASK_RUBRIC_CREATION_SKILL_BACKUP="$(mktemp)"
+REFINE_RUBRIC_SKILL_BACKUP="$(mktemp)"
 
 HAD_EXISTING_TASK_PROMPT=0
 HAD_EXISTING_TASK_RESPONSES=0
 HAD_EXISTING_TASK_LLM_API=0
+HAD_EXISTING_TASK_RUBRIC_CREATION_SKILL=0
+HAD_EXISTING_REFINE_RUBRIC_SKILL=0
 
 if [[ -f "$TASK_PROMPT_PATH" ]]; then
   cp "$TASK_PROMPT_PATH" "$TASK_PROMPT_BACKUP"
@@ -115,6 +140,16 @@ fi
 if [[ -f "$TASK_LLM_API_PATH" ]]; then
   cp "$TASK_LLM_API_PATH" "$TASK_LLM_API_BACKUP"
   HAD_EXISTING_TASK_LLM_API=1
+fi
+
+if [[ -f "$TASK_RUBRIC_CREATION_SKILL_PATH" ]]; then
+  cp "$TASK_RUBRIC_CREATION_SKILL_PATH" "$TASK_RUBRIC_CREATION_SKILL_BACKUP"
+  HAD_EXISTING_TASK_RUBRIC_CREATION_SKILL=1
+fi
+
+if [[ -f "$REFINE_RUBRIC_SKILL_PATH" ]]; then
+  cp "$REFINE_RUBRIC_SKILL_PATH" "$REFINE_RUBRIC_SKILL_BACKUP"
+  HAD_EXISTING_REFINE_RUBRIC_SKILL=1
 fi
 
 cleanup() {
@@ -136,7 +171,15 @@ cleanup() {
     rm -f "$TASK_LLM_API_PATH"
   fi
 
-  rm -f "$TASK_PROMPT_BACKUP" "$TASK_RESPONSES_BACKUP" "$TASK_LLM_API_BACKUP"
+  if [[ "$HAD_EXISTING_TASK_RUBRIC_CREATION_SKILL" -eq 1 ]]; then
+    cp "$TASK_RUBRIC_CREATION_SKILL_BACKUP" "$TASK_RUBRIC_CREATION_SKILL_PATH"
+  fi
+
+  if [[ "$HAD_EXISTING_REFINE_RUBRIC_SKILL" -eq 1 ]]; then
+    cp "$REFINE_RUBRIC_SKILL_BACKUP" "$REFINE_RUBRIC_SKILL_PATH"
+  fi
+
+  rm -f "$TASK_PROMPT_BACKUP" "$TASK_RESPONSES_BACKUP" "$TASK_LLM_API_BACKUP" "$TASK_RUBRIC_CREATION_SKILL_BACKUP" "$REFINE_RUBRIC_SKILL_BACKUP"
 }
 trap cleanup EXIT
 
@@ -144,19 +187,29 @@ cp "$SYSTEM_PROMPT_SOURCE" "$TASK_PROMPT_PATH"
 cp "$RESPONSES_JSON_SOURCE" "$TASK_RESPONSES_PATH"
 cp "$LLM_API_SOURCE" "$TASK_LLM_API_PATH"
 
+if [[ -n "$RUBRIC_CREATION_SKILL_OVERRIDE" ]]; then
+  cp "$RUBRIC_CREATION_SKILL_OVERRIDE" "$TASK_RUBRIC_CREATION_SKILL_PATH"
+fi
+
+if [[ -n "$RUBRIC_REFINEMENT_SKILL_OVERRIDE" ]]; then
+  cp "$RUBRIC_REFINEMENT_SKILL_OVERRIDE" "$REFINE_RUBRIC_SKILL_PATH"
+fi
+
 print_sha256 "opt_input.system_prompt.source" "$SYSTEM_PROMPT_SOURCE"
 print_sha256 "opt_input.system_prompt.task_copy" "$TASK_PROMPT_PATH"
 print_sha256 "opt_input.responses.source" "$RESPONSES_JSON_SOURCE"
 print_sha256 "opt_input.responses.task_copy" "$TASK_RESPONSES_PATH"
 print_sha256 "opt_input.llm_api.source" "$LLM_API_SOURCE"
 print_sha256 "opt_input.llm_api.task_copy" "$TASK_LLM_API_PATH"
+print_sha256 "opt_input.rubric_creation_skill.task_copy" "$TASK_RUBRIC_CREATION_SKILL_PATH"
+print_sha256 "opt_input.rubric_refinement_skill.task_copy" "$REFINE_RUBRIC_SKILL_PATH"
 
 HARBOR_ARGS=(
   run
   -p src/harbor_rubric_opt_task
   --env modal
   --agent claude-code
-  --model anthropic/claude-sonnet-4-6
+  --model "$MODEL_NAME"
   --ae ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
   --artifact /app/rubric.json
   --yes
@@ -210,7 +263,8 @@ for ((iter = 1; iter <= ITERATIONS; iter++)); do
   ./harbor_scripts/run_deterministic_judge_list.sh \
     "$RUBRIC_BEFORE_PATH" \
     "$RESPONSES_JSON_SOURCE" \
-    "$JUDGE_OUTPUT_PATH"
+    "$JUDGE_OUTPUT_PATH" \
+    "${MODEL_NAME#anthropic/}"
 
   echo "[$ITER_LABEL] Summarizing deterministic judge output: $JUDGE_OUTPUT_PATH"
   python3 src/summarize_judge_output.py --output-json "$JUDGE_OUTPUT_PATH"
@@ -220,13 +274,13 @@ for ((iter = 1; iter <= ITERATIONS; iter++)); do
   echo "[$ITER_LABEL] Running Harbor refinement task"
   REFINE_START_TS="$(date +%s)"
   if [[ -n "$CURRENT_CHANGE_SUMMARY_PATH" ]]; then
-    ./harbor_scripts/run_rubric_refine_task.sh \
+    RUBRIC_REFINE_MODEL="$MODEL_NAME" ./harbor_scripts/run_rubric_refine_task.sh \
       "$RUBRIC_BEFORE_PATH" \
       "$RESPONSES_JSON_SOURCE" \
       "$JUDGE_OUTPUT_PATH" \
       "$CURRENT_CHANGE_SUMMARY_PATH"
   else
-    ./harbor_scripts/run_rubric_refine_task.sh \
+    RUBRIC_REFINE_MODEL="$MODEL_NAME" ./harbor_scripts/run_rubric_refine_task.sh \
       "$RUBRIC_BEFORE_PATH" \
       "$RESPONSES_JSON_SOURCE" \
       "$JUDGE_OUTPUT_PATH"
