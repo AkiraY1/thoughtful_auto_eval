@@ -154,7 +154,7 @@ def main() -> None:
         )
 
         uploaded_json = st.file_uploader(
-            "Upload responses JSON (top-level list)", type=["json"]
+            "Upload data to test rubric on...", type=["json"]
         )
         iterations = st.number_input(
             "Optimization iterations",
@@ -173,6 +173,7 @@ def main() -> None:
         progress_placeholder = st.empty()
         progress_bar_placeholder = st.empty()
         eta_placeholder = st.empty()
+        timings_placeholder = st.empty()
         change_summary_placeholder = st.empty()
         rubric_versions_placeholder = st.empty()
         final_rubric_placeholder = st.empty()
@@ -229,27 +230,47 @@ def main() -> None:
             if loop_dir is None:
                 return
 
+            iter_dirs = sorted(
+                [p for p in loop_dir.glob("iter_*") if p.is_dir()],
+                key=lambda p: p.name,
+            )
+
+            with timings_placeholder.container():
+                st.markdown("**Iteration Timing Breakdown**")
+                timing_lines: list[str] = []
+                for iter_dir in iter_dirs:
+                    timing_path = iter_dir / "timings.json"
+                    timing = _read_json(timing_path)
+                    if not isinstance(timing, dict):
+                        timing_lines.append(f"- `{iter_dir.name}`: timing not available yet")
+                        continue
+                    judging = timing.get("judging_duration_sec", 0)
+                    refinement = timing.get("refinement_duration_sec", 0)
+                    total = timing.get("iteration_duration_sec", 0)
+                    timing_lines.append(
+                        f"- `{iter_dir.name}`: judging `{judging}s`, refinement `{refinement}s`, total `{total}s`"
+                    )
+                if timing_lines:
+                    st.markdown("\n".join(timing_lines))
+                else:
+                    st.caption("No timing data yet.")
+
             with rubric_versions_placeholder.container():
                 st.markdown("**Rubric Versions by Iteration**")
-                iter_dirs = sorted(
-                    [p for p in loop_dir.glob("iter_*") if p.is_dir()],
-                    key=lambda p: p.name,
-                )
                 for iter_dir in iter_dirs:
                     before_path = iter_dir / "rubric_before_refine.json"
-                    after_path = iter_dir / "rubric_after_refine.json"
 
-                    st.markdown(f"`{iter_dir.name}` - before refine")
+                    st.markdown(f"`{iter_dir.name}`")
                     before_text = _read_json_pretty(before_path)
                     if before_text is not None:
-                        st.code(before_text, language="json")
-                    else:
-                        st.caption("Not available yet.")
-
-                    st.markdown(f"`{iter_dir.name}` - after refine")
-                    after_text = _read_json_pretty(after_path)
-                    if after_text is not None:
-                        st.code(after_text, language="json")
+                        st.text_area(
+                            label=f"{iter_dir.name} rubric",
+                            value=before_text,
+                            height=240,
+                            key=f"before_refine_{iter_dir.name}",
+                            disabled=True,
+                            label_visibility="collapsed",
+                        )
                     else:
                         st.caption("Not available yet.")
 
