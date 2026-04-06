@@ -9,4 +9,5 @@ dependencies = [
     "modal>=1.4.1",
     "openai>=2.30.0",
     "python-dotenv>=1.2.2",
+    "streamlit>=1.44.0",
 ]
