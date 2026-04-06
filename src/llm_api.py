@@ -10,7 +10,16 @@ from dotenv import load_dotenv
 SUPPORTED_MODELS = {
     "gpt-4.1-2025-04-14": "openai",
     "claude-opus-4-1": "anthropic",
+    "claude-sonnet-4-6": "anthropic",
 }
+
+
+def _normalize_model_name(model: str) -> str:
+    """Accept provider-prefixed model names and return bare model id."""
+    if "/" in model:
+        # Examples: anthropic/claude-opus-4-1, openai/gpt-4.1-2025-04-14
+        return model.split("/", 1)[1]
+    return model
 
 
 def infer(
@@ -42,7 +51,8 @@ def infer(
 
     load_dotenv()
 
-    provider = SUPPORTED_MODELS.get(model)
+    normalized_model = _normalize_model_name(model)
+    provider = SUPPORTED_MODELS.get(normalized_model)
 
     stop_list = list(stop) if stop else None
 
@@ -53,7 +63,7 @@ def infer(
             client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
             response = client.chat.completions.create(
-                model=model,
+                model=normalized_model,
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -67,7 +77,7 @@ def infer(
             client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
             messages = [{"role": "user", "content": user_prompt}]
             response = client.messages.create(
-                model=model,
+                model=normalized_model,
                 system=system_prompt,
                 messages=messages,
                 max_tokens=max_tokens,
@@ -77,7 +87,11 @@ def infer(
             )
         
         case _:
-            raise ValueError(f"Unsupported provider '{provider}'")
+            supported = ", ".join(sorted(SUPPORTED_MODELS))
+            raise ValueError(
+                f"Unsupported model '{model}' (normalized: '{normalized_model}'). "
+                f"Supported models: {supported}"
+            )
 
     text_chunks = [block.text for block in response.content if block.type == "text"]
     return "".join(text_chunks).strip()

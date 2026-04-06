@@ -15,6 +15,24 @@ REPO_ROOT = Path(__file__).resolve().parent
 RUN_SCRIPT = REPO_ROOT / "harbor_scripts" / "run_rubric_opt_task.sh"
 JOBS_DIR = REPO_ROOT / "jobs"
 STABLE_REFINE_DIR = JOBS_DIR / "latest_harbor_rubric_refine_artifacts"
+RUBRIC_CREATION_SKILL_PATH = (
+    REPO_ROOT
+    / "src"
+    / "harbor_rubric_opt_task"
+    / "environment"
+    / "skills"
+    / "rubric_creation"
+    / "SKILL.md"
+)
+RUBRIC_REFINEMENT_SKILL_PATH = (
+    REPO_ROOT
+    / "src"
+    / "harbor_rubric_refine_task"
+    / "environment"
+    / "skills"
+    / "rubric_refinement"
+    / "SKILL.md"
+)
 
 
 def _list_final_optimized_rubrics() -> set[Path]:
@@ -62,6 +80,9 @@ def run_rubric_opt_task(
     system_prompt: str,
     dataset_bytes: bytes,
     iterations: int,
+    selected_model: str,
+    rubric_creation_skill_text: str | None = None,
+    rubric_refinement_skill_text: str | None = None,
     on_output_line: Callable[[str], None] | None = None,
     on_iteration_complete: Callable[[], None] | None = None,
 ) -> tuple[str | None, Any | None, str]:
@@ -77,14 +98,31 @@ def run_rubric_opt_task(
         tmp = Path(tmp_dir)
         prompt_path = tmp / "systemPrompt.txt"
         dataset_path = tmp / "responses.json"
+        rubric_creation_skill_path = tmp / "rubric_creation_skill.md"
+        rubric_refinement_skill_path = tmp / "rubric_refinement_skill.md"
 
         prompt_path.write_text(system_prompt, encoding="utf-8")
         dataset_path.write_bytes(dataset_bytes)
 
         cmd = [str(RUN_SCRIPT), str(prompt_path), str(dataset_path), str(iterations)]
+        if rubric_creation_skill_text is not None and rubric_refinement_skill_text is not None:
+            rubric_creation_skill_path.write_text(
+                rubric_creation_skill_text, encoding="utf-8"
+            )
+            rubric_refinement_skill_path.write_text(
+                rubric_refinement_skill_text, encoding="utf-8"
+            )
+            cmd.extend(
+                [str(rubric_creation_skill_path), str(rubric_refinement_skill_path)]
+            )
         process = subprocess.Popen(
             cmd,
             cwd=REPO_ROOT,
+            env={
+                **os.environ,
+                "RUBRIC_OPT_MODEL": selected_model,
+                "RUBRIC_REFINE_MODEL": selected_model,
+            },
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -143,6 +181,19 @@ def main() -> None:
     left_col, right_col = st.columns([1, 1], gap="large")
 
     with left_col:
+        if "rubric_creation_skill_text" not in st.session_state:
+            st.session_state["rubric_creation_skill_text"] = (
+                RUBRIC_CREATION_SKILL_PATH.read_text(encoding="utf-8")
+                if RUBRIC_CREATION_SKILL_PATH.exists()
+                else ""
+            )
+        if "rubric_refinement_skill_text" not in st.session_state:
+            st.session_state["rubric_refinement_skill_text"] = (
+                RUBRIC_REFINEMENT_SKILL_PATH.read_text(encoding="utf-8")
+                if RUBRIC_REFINEMENT_SKILL_PATH.exists()
+                else ""
+            )
+
         default_prompt = (
             "You are a concise assistant. Follow user instructions while staying factual and safe."
         )
@@ -164,9 +215,32 @@ def main() -> None:
             step=1,
             help="Number of judge->refine loop iterations to run.",
         )
+        selected_model_label = st.selectbox(
+            "Model",
+            options=["Claude Sonnet 4.6", "Claude Opus 4.1"],
+            index=0,
+        )
+        selected_model = (
+            "anthropic/claude-sonnet-4-6"
+            if selected_model_label == "Claude Sonnet 4.6"
+            else "anthropic/claude-opus-4-1"
+        )
+
+        with st.expander("Advanced Options", expanded=False):
+            st.markdown("**Rubric creation and refinement skill overrides**")
+            st.text_area(
+                "Rubric Creation",
+                key="rubric_creation_skill_text",
+                height=220,
+            )
+            st.text_area(
+                "Rubric Refinement",
+                key="rubric_refinement_skill_text",
+                height=220,
+            )
 
         run_clicked = st.button(
-            "Run rubric_opt_task", type="primary", use_container_width=True
+            "Run rubric optimization", type="primary", use_container_width=True
         )
 
     with right_col:
@@ -289,6 +363,9 @@ def main() -> None:
                 prompt,
                 dataset_bytes,
                 int(iterations),
+                selected_model,
+                st.session_state["rubric_creation_skill_text"],
+                st.session_state["rubric_refinement_skill_text"],
                 on_output_line=_on_output_line,
                 on_iteration_complete=_on_iteration_complete,
             )
