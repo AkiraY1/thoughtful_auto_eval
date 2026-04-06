@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -39,6 +40,24 @@ def _get_latest_change_summary() -> Any | None:
     return _read_json(STABLE_REFINE_DIR / "change_summary.json")
 
 
+def _get_latest_optimization_loop_dir() -> Path | None:
+    if not JOBS_DIR.exists():
+        return None
+    candidates = list(
+        JOBS_DIR.glob("**/harbor_rubric_opt_task__*/artifacts/optimization_loop")
+    )
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def _read_json_pretty(path: Path) -> str | None:
+    data = _read_json(path)
+    if data is None:
+        return None
+    return json.dumps(data, indent=2)
+
+
 def run_rubric_opt_task(
     system_prompt: str,
     dataset_bytes: bytes,
@@ -47,10 +66,10 @@ def run_rubric_opt_task(
     on_iteration_complete: Callable[[], None] | None = None,
 ) -> tuple[str | None, Any | None, str]:
     if not RUN_SCRIPT.exists():
-        return None, f"Missing run script: {RUN_SCRIPT}"
+        return None, None, f"Missing run script: {RUN_SCRIPT}"
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return None, "ANTHROPIC_API_KEY is not set in the environment."
+        return None, None, "ANTHROPIC_API_KEY is not set in the environment."
 
     before = _list_final_optimized_rubrics()
 
@@ -116,34 +135,51 @@ def run_rubric_opt_task(
 
 def main() -> None:
     st.set_page_config(page_title="Rubric Optimizer", layout="wide")
-    st.title("Rubric Optimizer (harbor_rubric_opt_task)")
+    st.title("Rubric Optimization")
     st.write(
-        "Provide a system prompt and upload a JSON dataset. The pipeline runs rubric creation, deterministic judging, and refinement, then returns the optimized `rubric.json`."
+        "Provide a system prompt and upload a JSON dataset. The pipeline iteratively runs rubric creation and refinement, then returns an optimized rubric."
     )
 
-    default_prompt = (
-        "You are a concise assistant. Follow user instructions while staying factual and safe."
-    )
-    system_prompt = st.text_area(
-        "System prompt",
-        value=default_prompt,
-        height=220,
-        placeholder="Write the system prompt to evaluate against...",
-    )
+    left_col, right_col = st.columns([1, 1], gap="large")
 
-    uploaded_json = st.file_uploader(
-        "Upload responses JSON (top-level list)", type=["json"]
-    )
-    iterations = st.number_input(
-        "Optimization iterations",
-        min_value=1,
-        max_value=20,
-        value=2,
-        step=1,
-        help="Number of judge->refine loop iterations to run.",
-    )
+    with left_col:
+        default_prompt = (
+            "You are a concise assistant. Follow user instructions while staying factual and safe."
+        )
+        system_prompt = st.text_area(
+            "System prompt",
+            value=default_prompt,
+            height=220,
+            placeholder="Write the system prompt to evaluate against...",
+        )
 
-    run_clicked = st.button("Run rubric_opt_task", type="primary", use_container_width=True)
+        uploaded_json = st.file_uploader(
+            "Upload responses JSON (top-level list)", type=["json"]
+        )
+        iterations = st.number_input(
+            "Optimization iterations",
+            min_value=1,
+            max_value=20,
+            value=2,
+            step=1,
+            help="Number of judge->refine loop iterations to run.",
+        )
+
+        run_clicked = st.button(
+            "Run rubric_opt_task", type="primary", use_container_width=True
+        )
+
+        st.subheader("Logs")
+        logs_placeholder = st.empty()
+
+    with right_col:
+        st.subheader("Optimization Progress")
+        progress_placeholder = st.empty()
+        progress_bar_placeholder = st.empty()
+        eta_placeholder = st.empty()
+        change_summary_placeholder = st.empty()
+        rubric_versions_placeholder = st.empty()
+        final_rubric_placeholder = st.empty()
 
     if run_clicked:
         prompt = system_prompt.strip()
@@ -159,9 +195,67 @@ def main() -> None:
             st.error("Uploaded JSON file is empty.")
             return
 
-        logs_placeholder = st.empty()
-        summary_placeholder = st.empty()
         log_lines: list[str] = []
+        completed_iterations = 0
+        start_ts = time.time()
+        progress_placeholder.info("Run started. Waiting for iteration updates...")
+        progress_bar = progress_bar_placeholder.progress(0.0)
+        eta_placeholder.caption(
+            f"Estimated time remaining: {int(iterations) * 6} min (assumes 6 min/iteration)"
+        )
+
+        def _update_progress_display() -> None:
+            nonlocal completed_iterations
+            total = max(int(iterations), 1)
+            ratio = min(max(completed_iterations / total, 0.0), 1.0)
+            progress_bar.progress(ratio)
+
+            elapsed_sec = max(time.time() - start_ts, 0.0)
+            remaining_iters = max(total - completed_iterations, 0)
+            est_remaining_sec = remaining_iters * 6 * 60
+            est_total_sec = total * 6 * 60
+            eta_placeholder.caption(
+                "Iterations completed: "
+                f"{completed_iterations}/{total} | "
+                f"Elapsed: {int(elapsed_sec // 60)}m {int(elapsed_sec % 60)}s | "
+                f"Est. remaining: {int(est_remaining_sec // 60)}m {int(est_remaining_sec % 60)}s "
+                f"(assumed total: {int(est_total_sec // 60)} min)"
+            )
+
+        def _refresh_right_panel() -> None:
+            change_summary = _get_latest_change_summary()
+            if change_summary is not None:
+                with change_summary_placeholder.container():
+                    st.markdown("**Change Summary (live)**")
+                    st.json(change_summary)
+
+            loop_dir = _get_latest_optimization_loop_dir()
+            if loop_dir is None:
+                return
+
+            with rubric_versions_placeholder.container():
+                st.markdown("**Rubric Versions by Iteration**")
+                iter_dirs = sorted(
+                    [p for p in loop_dir.glob("iter_*") if p.is_dir()],
+                    key=lambda p: p.name,
+                )
+                for iter_dir in iter_dirs:
+                    before_path = iter_dir / "rubric_before_refine.json"
+                    after_path = iter_dir / "rubric_after_refine.json"
+
+                    st.markdown(f"`{iter_dir.name}` - before refine")
+                    before_text = _read_json_pretty(before_path)
+                    if before_text is not None:
+                        st.code(before_text, language="json")
+                    else:
+                        st.caption("Not available yet.")
+
+                    st.markdown(f"`{iter_dir.name}` - after refine")
+                    after_text = _read_json_pretty(after_path)
+                    if after_text is not None:
+                        st.code(after_text, language="json")
+                    else:
+                        st.caption("Not available yet.")
 
         def _on_output_line(line: str) -> None:
             log_lines.append(line)
@@ -169,10 +263,11 @@ def main() -> None:
             logs_placeholder.code("\n".join(log_lines[-120:]) or "Starting...")
 
         def _on_iteration_complete() -> None:
-            summary = _get_latest_change_summary()
-            if summary is not None:
-                summary_placeholder.subheader("Change Summary (live)")
-                summary_placeholder.json(summary)
+            nonlocal completed_iterations
+            completed_iterations += 1
+            _update_progress_display()
+            progress_placeholder.info("Iteration completed. Updating right panel...")
+            _refresh_right_panel()
 
         with st.spinner("Running rubric_opt_task pipeline... this can take a while."):
             rubric_json_text, final_change_summary, error = run_rubric_opt_task(
@@ -188,12 +283,19 @@ def main() -> None:
             st.code(error)
             return
 
-        st.success("Optimized rubric generated.")
-        st.subheader("Optimized rubric.json (raw)")
-        st.code(rubric_json_text or "", language="json")
+        progress_placeholder.success("Optimization run complete.")
+        completed_iterations = int(iterations)
+        _update_progress_display()
+        _refresh_right_panel()
+
         if final_change_summary is not None:
-            st.subheader("Final change_summary.json")
-            st.json(final_change_summary)
+            with change_summary_placeholder.container():
+                st.markdown("**Final change_summary.json**")
+                st.json(final_change_summary)
+
+        with final_rubric_placeholder.container():
+            st.markdown("**Final optimized rubric.json (raw)**")
+            st.code(rubric_json_text or "", language="json")
 
 
 if __name__ == "__main__":
