@@ -2,10 +2,11 @@
 
 ## Demo Videos
 
-<p align="center">
-  <img src="assets/demo_v2_part1.gif" alt="v2 Demo Part 1" width="49%" />
-  <img src="assets/demo_v2_part2.gif" alt="v2 Demo Part 2" width="49%" />
-</p>
+![v2 Demo Part 1](assets/demo_v2_part1.gif)
+<p><em>Rubric optimization (beginning of workflow)</em></p>
+
+![v2 Demo Part 2](assets/demo_v2_part2.gif)
+<p><em>Rubric optimization (during the optimization process)</em></p>
 
 ## Table of Contents
 
