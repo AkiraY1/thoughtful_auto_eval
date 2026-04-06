@@ -119,17 +119,18 @@ Three methods:
 
 ## Demo Videos
 
+<p align="center" width="100%">
+<video src="assets/demo_v2_part1.mp4" width="80%" controls></video>
+</p>
+
 ### V2 Demo - Part 1
-<video width="900" controls preload="metadata">
-  <source src="assets/demo_v2_part1.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+[Watch Part 1 (MP4)](assets/demo_v2_part1.mp4)
 
 ### V2 Demo - Part 2
-<video width="900" controls preload="metadata">
-  <source src="assets/demo_v2_part2.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+[Watch Part 2 (MP4)](assets/demo_v2_part2.mp4)
+
+> Note: GitHub README pages do not consistently support inline MP4 playback.  
+> Use the links above to open each video.
 
 ## How to Run
 
