@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -9,7 +10,9 @@ import streamlit as st
 
 
 REPO_ROOT = Path(__file__).resolve().parent
-RUN_SCRIPT = REPO_ROOT / "harbor_scripts" / "run_rubric_task.sh"
+TASK_DIR = REPO_ROOT / "src" / "harbor_rubric_task"
+SYSTEM_PROMPT_REL_PATH = Path("environment/system_prompt.txt")
+RUBRIC_CREATION_REL_PATH = Path("environment/skills/rubric_creation/SKILL.md")
 JOBS_DIR = REPO_ROOT / "jobs"
 
 
@@ -19,29 +22,51 @@ def _list_rubric_artifacts() -> set[Path]:
     return set(JOBS_DIR.glob("**/artifacts/rubric.txt"))
 
 
-def run_rubric_task(system_prompt: str) -> tuple[str | None, str]:
-    if not RUN_SCRIPT.exists():
-        return None, f"Missing script: {RUN_SCRIPT}"
+def run_rubric_task(system_prompt: str, rubric_creation_skill: str) -> tuple[str | None, str]:
+    if not TASK_DIR.exists():
+        return None, f"Missing task directory: {TASK_DIR}"
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return None, "ANTHROPIC_API_KEY is not set in the environment."
 
     before = _list_rubric_artifacts()
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp_file:
-        tmp_file.write(system_prompt)
-        tmp_path = Path(tmp_file.name)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        temp_task_dir = Path(tmp_dir) / TASK_DIR.name
+        shutil.copytree(TASK_DIR, temp_task_dir)
 
-    try:
+        temp_system_prompt_path = temp_task_dir / SYSTEM_PROMPT_REL_PATH
+        temp_system_prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_system_prompt_path.write_text(system_prompt, encoding="utf-8")
+
+        temp_rubric_creation_path = temp_task_dir / RUBRIC_CREATION_REL_PATH
+        temp_rubric_creation_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_rubric_creation_path.write_text(rubric_creation_skill, encoding="utf-8")
+
         completed = subprocess.run(
-            [str(RUN_SCRIPT), str(tmp_path)],
+            [
+                "harbor",
+                "run",
+                "-p",
+                str(temp_task_dir),
+                "--env",
+                "modal",
+                "--force-build",
+                "--agent",
+                "claude-code",
+                "--model",
+                "anthropic/claude-opus-4-1",
+                "--ae",
+                f"ANTHROPIC_API_KEY={os.environ['ANTHROPIC_API_KEY']}",
+                "--artifact",
+                "/app/rubric.txt",
+                "--yes",
+            ],
             cwd=REPO_ROOT,
             text=True,
             capture_output=True,
             check=False,
         )
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
     if completed.returncode != 0:
         output = "\n".join(
@@ -68,10 +93,10 @@ def run_rubric_task(system_prompt: str) -> tuple[str | None, str]:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Rubric Task Runner", layout="centered")
-    st.title("Rubric Task Runner")
+    st.set_page_config(page_title="Agentic Eval Creation", layout="wide")
+    st.title("Agentic Eval Creation")
     st.write(
-        "Enter a system prompt, run `rubric_task`, and view the generated `rubric.txt` artifact."
+        "Enter a system prompt that you want your LLM to follow, and we will create a rubric that an LLM judge can use to evaluate how closely your model follows it. You can edit the rubric creation principles as well if you have any specific design criteria."
     )
 
     default_prompt = (
@@ -84,6 +109,20 @@ def main() -> None:
         placeholder="Write the system prompt to evaluate against...",
     )
 
+    rubric_creation_source = TASK_DIR / RUBRIC_CREATION_REL_PATH
+    default_rubric_creation = ""
+    if rubric_creation_source.exists():
+        default_rubric_creation = rubric_creation_source.read_text(encoding="utf-8")
+
+    if "rubric_creation_skill_text" not in st.session_state:
+        st.session_state["rubric_creation_skill_text"] = default_rubric_creation
+
+    rubric_creation_skill = st.text_area(
+        "Principles to build a good LLM judge rubric",
+        key="rubric_creation_skill_text",
+        height=180,
+    )
+
     run_clicked = st.button("Run rubric_task", type="primary", use_container_width=True)
 
     if run_clicked:
@@ -93,7 +132,7 @@ def main() -> None:
             return
 
         with st.spinner("Running rubric_task... this can take a while."):
-            rubric_text, error = run_rubric_task(prompt)
+            rubric_text, error = run_rubric_task(prompt, rubric_creation_skill)
 
         if error:
             st.error("rubric_task failed.")
