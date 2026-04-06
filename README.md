@@ -123,11 +123,8 @@ Three methods:
 <video src="https://github.com/AkiraY1/thoughtful_auto_eval/blob/main/assets/demo_v2_part2.mp4" width="80%" controls></video>
 </p>
 
-### V2 Demo - Part 1
-[Watch Part 1 (MP4)](assets/demo_v2_part1.mp4)
-
-### V2 Demo - Part 2
-[Watch Part 2 (MP4)](assets/demo_v2_part2.mp4)
+![V2 Demo Part 1](assets/demo_v2_part1.gif)
+![V2 Demo Part 2](assets/demo_v2_part2.gif)
 
 > Note: GitHub README pages do not consistently support inline MP4 playback.  
 > Use the links above to open each video.
