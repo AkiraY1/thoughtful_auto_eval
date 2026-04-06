@@ -97,8 +97,6 @@ HARBOR_ARGS=(
   --ae ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"
   --artifact /app/rubric.txt
   --artifact /app/parse_responses.py
-  --artifact /app/parsed_responses.json
-  --artifact /app/judged_responses.json
   --yes
 )
 
