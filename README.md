@@ -1,10 +1,10 @@
 # Thoughtful Auto-Eval
 
 ![v2 Demo Part 1](assets/demo_v2_part1.gif)
-*Figure 1: Rubric optimization (beginning of workflow).*
+<p align="center"><em>Figure 1: Rubric optimization (beginning of workflow).</em></p>
 
 ![v2 Demo Part 2](assets/demo_v2_part2.gif)
-*Figure 2: Rubric optimization (during the optimization process).*
+<p align="center"><em>Figure 2: Rubric optimization (during the optimization process).</em></p>
 
 ## Table of Contents
 
@@ -23,8 +23,8 @@
 Create an agentic pipeline to create evals for post-training LLMs.
 
 Args:
-  Input: A system prompt that describes correct LLM behavior and sample data from the client.
-  Output: An eval method (in this case a rubric to perform LLM judging)
+- Input: A system prompt that describes correct LLM behavior and sample data from the client.
+- Output: An eval method (in this case a rubric to perform LLM judging)
 
 ## File Structure
 
@@ -64,25 +64,25 @@ thoughtful_auto_eval/
 
 2. **Iterative Rubric Optimization**
 
-  - **Goal:** Create a grounded, scalable and modular optimization loop to create a rubric for a client.
-  - **Overall functionality:** The loop is as follows:
-      (1) Agent creates individualized rubric from user-provided system prompt and sample data
-      (2) External LLM judge uses rubric to evaluate sample data (reasoning + scores)
-      (3) Agent evaluates sample data itself (reasoning + scores)
-      (4) Agent compares its own evaluation with the LLM judge evaluation and writes notes on pros/cons and possible changs
-      (5) Agent modifies rubric and writes summary of changes
-      (6) Go back to LLM judge evaluation with new rubric, and loop restarts
-  - **Grounding:** Testing the eval on sample data from the client grounds the iterations in reality - the only better grounding would be to start training a model with these evals IMO
-  - **Scalability:** Can scale in accuracy by inputting more sample data and/or running for more iterations.
-  - **Modularity:** Can replace/modify skill.md files and change instruction.md to modify the agentic evaluation loop
-    - Currently, the agent must interact with the following files:
-      - user_provided_sample_data.json: agent must understand the data format
-      - rubric.json: the rubric, with individual specs for each criterion
-      - agent_eval.json: the agent's own evaluation of the sample data's fitness to the system prompt
-      - agent_notes.md: append-only file for the agent to write detailed notes it wants on changes it made across iterations (prevents regression/repetition across iterations)
-      - old_rubrics/... : archive of old rubrics
-      - change_summary.json: agent's append-only summary of the 2-3 most important changes it made per iteration (for the transparency / client understanding of how the rubric is being modified)
-    - The rubric is individualized (rubric creation is done by criterion, and evaluation by LLM judge is also done by criterion)
+   - **Goal:** Create a grounded, scalable, and modular optimization loop to create a rubric for a client.
+   - **Overall functionality:** The loop is as follows:
+     - (1) Agent creates an individualized rubric from a user-provided system prompt and sample data.
+     - (2) External LLM judge uses the rubric to evaluate sample data (reasoning + scores).
+     - (3) Agent evaluates sample data itself (reasoning + scores).
+     - (4) Agent compares its own evaluation with the LLM judge evaluation and writes notes on pros/cons and possible changes.
+     - (5) Agent modifies the rubric and writes a summary of changes.
+     - (6) Go back to LLM judge evaluation with the new rubric, and the loop restarts.
+   - **Grounding:** Testing the eval on sample data from the client grounds the iterations in reality. The only better grounding would be to start training a model with these evals.
+   - **Scalability:** Can scale in accuracy by inputting more sample data and/or running for more iterations.
+   - **Modularity:** Can replace/modify `SKILL.md` files and change `instruction.md` to modify the agentic evaluation loop.
+     - Currently, the agent must interact with the following files:
+       - `user_provided_sample_data.json`: agent must understand the data format.
+       - `rubric.json`: the rubric, with individual specs for each criterion.
+       - `agent_eval.json`: the agent's own evaluation of the sample data's fitness to the system prompt.
+       - `agent_notes.md`: append-only file for the agent to write detailed notes on changes made across iterations (prevents regression/repetition across iterations).
+       - `old_rubrics/...`: archive of old rubrics.
+       - `change_summary.json`: append-only summary of the 2-3 most important changes made per iteration.
+     - The rubric is individualized (rubric creation is done by criterion, and evaluation by the LLM judge is also done by criterion).
 
 3. **Multi-agent Eval System**
 
@@ -107,7 +107,7 @@ uv sync
 
 ### v1: Single-pass rubric creation
 
-To run via via the command line:
+To run via the command line:
 
 ```bash
 ./harbor_scripts/run_rubric_task.sh /path/to/systemPrompt.txt
@@ -121,7 +121,7 @@ streamlit run streamlit_app_rubric_simple.py
 
 ### v2: Iterative rubric optimization
 
-To run via via the command line:
+To run via the command line:
 
 ```bash
 ./harbor_scripts/run_rubric_opt_task.sh \
