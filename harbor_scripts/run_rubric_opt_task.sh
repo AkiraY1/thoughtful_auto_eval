@@ -16,8 +16,12 @@ print_sha256() {
   fi
 }
 
-if [[ $# -lt 2 || $# -gt 5 ]]; then
-  echo "Usage: $0 /path/to/systemPrompt.txt /path/to/responses.json [iterations] [rubric_creation_skill.md] [rubric_refinement_skill.md]"
+if [[ $# -lt 2 || $# -gt 6 ]]; then
+  echo "Usage (new): $0 /path/to/systemPrompt.txt /path/to/responses.json [full_eval_responses.json] [iterations] [rubric_creation_skill.md] [rubric_refinement_skill.md]"
+  echo "Usage (legacy): $0 /path/to/systemPrompt.txt /path/to/responses.json [iterations] [rubric_creation_skill.md] [rubric_refinement_skill.md] [full_eval_responses.json]"
+  echo ""
+  echo "Note: full_eval_responses.json is only used at the very end for local deterministic judging."
+  echo "It is NOT copied into Harbor task environment and NOT uploaded to Harbor."
   exit 1
 fi
 
@@ -30,11 +34,40 @@ fi
 
 SYSTEM_PROMPT_SOURCE="$1"
 RESPONSES_JSON_SOURCE="$2"
-ITERATIONS="${3:-1}"
 LLM_API_SOURCE="src/llm_api.py"
-RUBRIC_CREATION_SKILL_OVERRIDE="${4:-}"
-RUBRIC_REFINEMENT_SKILL_OVERRIDE="${5:-}"
-MODEL_NAME="${RUBRIC_OPT_MODEL:-anthropic/claude-sonnet-4-6}"
+ARG3="${3:-}"
+ARG4="${4:-}"
+ARG5="${5:-}"
+ARG6="${6:-}"
+RUBRIC_CREATION_SKILL_OVERRIDE=""
+RUBRIC_REFINEMENT_SKILL_OVERRIDE=""
+FULL_EVAL_RESPONSES_JSON_SOURCE=""
+ITERATIONS="1"
+MODEL_NAME="${RUBRIC_OPT_MODEL:-anthropic/claude-opus-4-1}"
+
+# New preferred order:
+#   1) system prompt
+#   2) optimization responses
+#   3) full eval responses (optional, json)
+#   4) iterations (optional)
+#   5) rubric creation skill override (optional)
+#   6) rubric refinement skill override (optional)
+#
+# Legacy compatibility:
+#   if arg3 is numeric, treat it as iterations and keep old ordering.
+if [[ -n "$ARG3" ]]; then
+  if [[ "$ARG3" =~ ^[0-9]+$ ]]; then
+    ITERATIONS="$ARG3"
+    RUBRIC_CREATION_SKILL_OVERRIDE="$ARG4"
+    RUBRIC_REFINEMENT_SKILL_OVERRIDE="$ARG5"
+    FULL_EVAL_RESPONSES_JSON_SOURCE="$ARG6"
+  else
+    FULL_EVAL_RESPONSES_JSON_SOURCE="$ARG3"
+    ITERATIONS="${ARG4:-1}"
+    RUBRIC_CREATION_SKILL_OVERRIDE="$ARG5"
+    RUBRIC_REFINEMENT_SKILL_OVERRIDE="$ARG6"
+  fi
+fi
 
 if ! [[ "$ITERATIONS" =~ ^[0-9]+$ ]] || [[ "$ITERATIONS" -lt 1 ]]; then
   echo "iterations must be a positive integer. Got: $ITERATIONS"
@@ -76,6 +109,25 @@ fi
 if [[ -n "$RUBRIC_REFINEMENT_SKILL_OVERRIDE" && ! -f "$RUBRIC_REFINEMENT_SKILL_OVERRIDE" ]]; then
   echo "Rubric refinement skill override not found: $RUBRIC_REFINEMENT_SKILL_OVERRIDE"
   exit 1
+fi
+
+if [[ -n "$FULL_EVAL_RESPONSES_JSON_SOURCE" && ! -f "$FULL_EVAL_RESPONSES_JSON_SOURCE" ]]; then
+  echo "Full eval responses JSON not found: $FULL_EVAL_RESPONSES_JSON_SOURCE"
+  exit 1
+fi
+
+if [[ -n "$FULL_EVAL_RESPONSES_JSON_SOURCE" ]]; then
+  python3 - "$FULL_EVAL_RESPONSES_JSON_SOURCE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+raw = json.loads(path.read_text(encoding="utf-8"))
+if not isinstance(raw, list):
+    raise SystemExit(f"full_eval_responses.json must be a top-level JSON list. Got: {type(raw).__name__}")
+print(f"Validated full eval dataset format (list) with {len(raw)} entries: {path}")
+PY
 fi
 
 # Fresh-start cleanup for stateful environment + local artifact pointers.
@@ -203,6 +255,10 @@ print_sha256 "opt_input.llm_api.source" "$LLM_API_SOURCE"
 print_sha256 "opt_input.llm_api.task_copy" "$TASK_LLM_API_PATH"
 print_sha256 "opt_input.rubric_creation_skill.task_copy" "$TASK_RUBRIC_CREATION_SKILL_PATH"
 print_sha256 "opt_input.rubric_refinement_skill.task_copy" "$REFINE_RUBRIC_SKILL_PATH"
+if [[ -n "$FULL_EVAL_RESPONSES_JSON_SOURCE" ]]; then
+  print_sha256 "opt_input.full_eval_responses.source" "$FULL_EVAL_RESPONSES_JSON_SOURCE"
+  echo "Full eval dataset is reserved for final local eval only (not sent to Harbor): $FULL_EVAL_RESPONSES_JSON_SOURCE"
+fi
 
 HARBOR_ARGS=(
   run
@@ -336,9 +392,75 @@ cat > "$FINAL_DIR/metadata.json" <<EOF
   "final_rubric": "$FINAL_DIR/rubric.json",
   "final_change_summary": "$FINAL_DIR/change_summary.json",
   "loop_dir": "$LOOP_DIR",
-  "stable_refine_pointer": "$STABLE_REFINE_POINTER"
+  "stable_refine_pointer": "$STABLE_REFINE_POINTER",
+  "full_eval_responses_source": "$FULL_EVAL_RESPONSES_JSON_SOURCE",
+  "full_eval_output": "$FINAL_DIR/full_eval_output.json",
+  "full_eval_summary": "$FINAL_DIR/full_eval_summary.json"
 }
 EOF
 
 echo "Optimization loop complete."
 echo "Final optimized rubric: $FINAL_DIR/rubric.json"
+
+if [[ -n "$FULL_EVAL_RESPONSES_JSON_SOURCE" ]]; then
+  FINAL_FULL_EVAL_OUTPUT_PATH="$FINAL_DIR/full_eval_output.json"
+  FINAL_FULL_EVAL_SUMMARY_PATH="$FINAL_DIR/full_eval_summary.json"
+  FINAL_FULL_EVAL_STATS_PATH="$FINAL_DIR/full_eval_stats.txt"
+
+  echo "Running final local deterministic eval on full dataset: $FULL_EVAL_RESPONSES_JSON_SOURCE"
+  ./harbor_scripts/run_deterministic_judge_list.sh \
+    "$FINAL_DIR/rubric.json" \
+    "$FULL_EVAL_RESPONSES_JSON_SOURCE" \
+    "$FINAL_FULL_EVAL_OUTPUT_PATH" \
+    "${MODEL_NAME#anthropic/}"
+
+  echo "Summarizing final full-dataset eval output: $FINAL_FULL_EVAL_OUTPUT_PATH"
+  python3 src/summarize_judge_output.py --output-json "$FINAL_FULL_EVAL_OUTPUT_PATH"
+
+  python3 - "$FINAL_FULL_EVAL_OUTPUT_PATH" "$FINAL_FULL_EVAL_SUMMARY_PATH" "$FINAL_FULL_EVAL_STATS_PATH" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+output_path = Path(sys.argv[1])
+summary_path = Path(sys.argv[2])
+stats_path = Path(sys.argv[3])
+
+payload = json.loads(output_path.read_text(encoding="utf-8"))
+summary = payload.get("summary", {})
+summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+item_count = int(summary.get("item_count", 0) or 0)
+scored_item_count = int(summary.get("scored_item_count", 0) or 0)
+mean_final_score = float(summary.get("mean_final_score", 0.0) or 0.0)
+percentiles = summary.get("final_score_percentiles", {}) or {}
+per_criterion = summary.get("per_criterion_mean", {}) or {}
+
+lines = []
+lines.append("=== FINAL FULL-DATASET EVAL SUMMARY ===")
+lines.append(f"item_count: {item_count}")
+lines.append(f"scored_item_count: {scored_item_count}")
+coverage = (scored_item_count / item_count * 100.0) if item_count else 0.0
+lines.append(f"scored_coverage_pct: {coverage:.2f}")
+lines.append(f"mean_final_score: {mean_final_score:.6f}")
+lines.append(
+    "final_score_percentiles: "
+    f"p10={float(percentiles.get('p10', 0.0) or 0.0):.6f}, "
+    f"p25={float(percentiles.get('p25', 0.0) or 0.0):.6f}, "
+    f"p50={float(percentiles.get('p50', 0.0) or 0.0):.6f}, "
+    f"p75={float(percentiles.get('p75', 0.0) or 0.0):.6f}, "
+    f"p90={float(percentiles.get('p90', 0.0) or 0.0):.6f}"
+)
+lines.append("per_criterion_mean:")
+for criterion, score in sorted(per_criterion.items(), key=lambda kv: kv[0].lower()):
+    lines.append(f"  - {criterion}: {float(score):.6f}")
+
+stats_text = "\n".join(lines)
+stats_path.write_text(stats_text + "\n", encoding="utf-8")
+print(stats_text)
+print("")
+print(f"Saved full eval output: {output_path}")
+print(f"Saved full eval summary: {summary_path}")
+print(f"Saved full eval stats text: {stats_path}")
+PY
+fi
