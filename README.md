@@ -15,7 +15,7 @@
   - [Prerequisites](#prerequisites)
   - [v1: Single-pass rubric creation](#v1-single-pass-rubric-creation)
   - [v2: Iterative rubric optimization](#v2-iterative-rubric-optimization)
-- [Possible Improvements](#possible-improvements)
+- [Future Improvements](#future-improvements)
 - [Auto-Eval Alternatives](#auto-eval-alternatives)
 
 ## Task Description
