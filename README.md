@@ -1,12 +1,10 @@
 # Thoughtful Auto-Eval
 
-## Demo Videos
-
 ![v2 Demo Part 1](assets/demo_v2_part1.gif)
-<p><em>Rubric optimization (beginning of workflow)</em></p>
+*Figure 1: Rubric optimization (beginning of workflow).*
 
 ![v2 Demo Part 2](assets/demo_v2_part2.gif)
-<p><em>Rubric optimization (during the optimization process)</em></p>
+*Figure 2: Rubric optimization (during the optimization process).*
 
 ## Table of Contents
 
@@ -22,11 +20,11 @@
 
 ## Task Description
 
-Create an auto-eval system with x inputs and y inputs.
+Create an agentic pipeline to create evals for post-training LLMs.
 
-Current practical framing in this repo:
-- **Input:** a `systemPrompt.txt` plus evaluation data (JSON responses/messages).
-- **Output:** an evaluation rubric and (optionally) an iteratively refined rubric loop that improves judging quality.
+Args:
+  Input: A system prompt that describes correct LLM behavior and sample data from the client.
+  Output: An eval method (in this case a rubric to perform LLM judging)
 
 ## File Structure
 
@@ -59,34 +57,37 @@ thoughtful_auto_eval/
 
 ## Methods
 
-Three methods:
+1. **Simple Rubric Creation**
 
-1. **Agent-only rubric creation**
-   - Agent analyzes the system prompt and creates a rubric.
-   - Rubric-design principles are injected via skill/config files.
+  - **Goal:** Create a simple rubric for a client based on system prompt.
+  - **Overall functionality:** From a user-provided system prompt, agent creates a rubric based on rubric design principles in SKILL.md
 
-2. **Agent + judge + iterative rubric refinement**
-   - Agent analyzes the system prompt and creates an initial rubric.
-   - A separate LLM judge uses that rubric to evaluate user-provided responses.
-   - Agent analyzes judge reasoning/scores and modifies the rubric.
-   - This can be repeated for `n` iterations.
+2. **Iterative Rubric Optimization**
 
-3. **Agent-designed multi-agent eval system**
-   - Agent analyzes the system prompt and designs a multi-agent evaluation system.
-   - Principles/patterns for system design are injected via files.
+  - **Goal:** Create a grounded, scalable and modular optimization loop to create a rubric for a client.
+  - **Overall functionality:** The loop is as follows:
+      (1) Agent creates individualized rubric from user-provided system prompt and sample data
+      (2) External LLM judge uses rubric to evaluate sample data (reasoning + scores)
+      (3) Agent evaluates sample data itself (reasoning + scores)
+      (4) Agent compares its own evaluation with the LLM judge evaluation and writes notes on pros/cons and possible changs
+      (5) Agent modifies rubric and writes summary of changes
+      (6) Go back to LLM judge evaluation with new rubric, and loop restarts
+  - **Grounding:** Testing the eval on sample data from the client grounds the iterations in reality - the only better grounding would be to start training a model with these evals IMO
+  - **Scalability:** Can scale in accuracy by inputting more sample data and/or running for more iterations.
+  - **Modularity:** Can replace/modify skill.md files and change instruction.md to modify the agentic evaluation loop
+    - Currently, the agent must interact with the following files:
+      - user_provided_sample_data.json: agent must understand the data format
+      - rubric.json: the rubric, with individual specs for each criterion
+      - agent_eval.json: the agent's own evaluation of the sample data's fitness to the system prompt
+      - agent_notes.md: append-only file for the agent to write detailed notes it wants on changes it made across iterations (prevents regression/repetition across iterations)
+      - old_rubrics/... : archive of old rubrics
+      - change_summary.json: agent's append-only summary of the 2-3 most important changes it made per iteration (for the transparency / client understanding of how the rubric is being modified)
+    - The rubric is individualized (rubric creation is done by criterion, and evaluation by LLM judge is also done by criterion)
 
-## Possible Improvements
+3. **Multi-agent Eval System**
 
-- Compare responses from multiple LLM judge models and choose the strongest judge.
-- Add a diff agent dedicated to summarizing differences between agent and judge outputs.
-- Explicitly separate **evidence extraction** from **scoring**.
-- Speed improvements (current pipeline is too slow).
-
-## Auto-Eval Alternatives
-
-- DSPy prompt optimization.
-- Text-to-LoRA.
-- Self-distillation with LLM feedback.
+  - Agent analyzes the system prompt and designs a multi-agent evaluation system.
+  - Principles/patterns for system design are injected via files.
 
 ## Usage
 
@@ -95,7 +96,7 @@ Three methods:
 - Python 3.10+
 - `uv` installed
 - `harbor` CLI installed and available in shell
-- API key set (at minimum):
+- Anthropic API key set:
   - `export ANTHROPIC_API_KEY='...'`
 
 Install dependencies:
@@ -106,75 +107,50 @@ uv sync
 
 ### v1: Single-pass rubric creation
 
+To run via via the command line:
+
 ```bash
-./harbor_scripts/run_rubric_task.sh eval_data/listen_labs/systemPrompt.txt
+./harbor_scripts/run_rubric_task.sh /path/to/systemPrompt.txt
 ```
 
-What it does:
-- Copies the provided system prompt into `src/harbor_rubric_task/environment/system_prompt.txt`.
-- Runs Harbor on `src/harbor_rubric_task`.
-- Produces rubric artifact(s) in `jobs/**/artifacts/rubric.txt`.
+To run the streamlit demo:
+
+```bash
+streamlit run streamlit_app_rubric_simple.py
+```
 
 ### v2: Iterative rubric optimization
 
-```bash
-./harbor_scripts/run_rubric_opt_task.sh \
-  eval_data/listen_labs/systemPrompt.txt \
-  eval_data/listen_labs/eval_dataset_mini.json \
-  2
-```
-
-Optional args:
-- full-dataset local eval mode (runs only after final optimized rubric):
-  - arg3: `full_eval_responses.json` (same schema as `responses.json`, usually larger)
-- arg4: iterations (default `1`)
-- arg5: rubric creation skill override (`.md`)
-- arg6: rubric refinement skill override (`.md`)
-
-Example with overrides:
+To run via via the command line:
 
 ```bash
 ./harbor_scripts/run_rubric_opt_task.sh \
-  eval_data/listen_labs/systemPrompt.txt \
-  eval_data/listen_labs/eval_dataset_mini.json \
-  3 \
-  src/harbor_rubric_opt_task/environment/skills/rubric_creation/SKILL.md \
-  src/harbor_rubric_refine_task/environment/skills/rubric_refinement/SKILL.md
+  /path/to/systemPrompt.txt \
+  /path/to/sample_client_data.json \
+  /path/to/full_eval_client_data.json \
+  <num_iterations> \
+  /path/to/rubric_creation_override_skill.md \    # Optional
+  /path/to/rubric_refinement_override_skill.md \  # Optional
 ```
 
-Example with final full-dataset local eval and no skill overrides:
+To run the streamlit demo:
 
 ```bash
-./harbor_scripts/run_rubric_opt_task.sh \
-  eval_data/listen_labs/systemPrompt.txt \
-  eval_data/listen_labs/eval_dataset_mini.json \
-  eval_data/listen_labs/eval_dataset_full.json \
-  3
+streamlit run streamlit_app_rubric_opt.py
 ```
 
-Model selection:
+## Future Improvements
 
-```bash
-export RUBRIC_OPT_MODEL=anthropic/claude-sonnet-4-6
-export RUBRIC_REFINE_MODEL=anthropic/claude-sonnet-4-6
-```
+- ~~Explicitly separate evidence extraction and scoring~~ (implemented!)
+- In the rubric optimization loop, you could run evals with multiple LLM judge models to better understand the strengths/flaws of the rubric.
+- Add a diff agent/tool dedicated to analyzing differences between agent and LLM judge evaluations of sample data.
+- Compare responses from multiple LLM judge models and choose the strongest judge
+- Understand the tradeoff between agent evaluation time and accuracy of the eval, and understand how to speedup the pipeline
 
-Final optimized rubric is written to:
-- `jobs/**/harbor_rubric_opt_task__*/artifacts/optimization_loop/final/rubric.json`
+## Auto-Eval Alternatives
 
-### Streamlit Demo: v1
+While auto-eval creation is extremely useful for understanding the held-out or final performance of trained models, it may not be necessary to use it as a signal for fine-tuning LLMs. It may be possible to do the following:
 
-```bash
-uv run streamlit run streamlit_app_rubric_simple.py
-```
-
-### Streamlit Demo: v2
-
-```bash
-uv run streamlit run streamlit_app_rubric_opt.py
-```
-
-## Notes
-
-- `eval_data/<task>/` should contain a `systemPrompt.txt` and (for v2) JSON response data.
-- Keep rubric logic modular through skill files so rubric principles can be swapped quickly.
+- **DSPy prompt optimization :** Using a framework like DSPy, all you need is a reflection model, but not necessarily a final score which would be needed for standard RLVR (this does not result in a trained model, only a context-optimized model which may be all you need in many scenarios)
+- **Text-to-LoRA :** Using hypernetworks, you can directly distill system prompt instructions into the weights of a model.
+- **Self-distillation :** Self-distillation methods allow you to train a model without scalar reward signals, instead using environment feedback like LLM reflections, Python interpreter outputs, etc.
