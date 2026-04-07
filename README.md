@@ -1,10 +1,10 @@
 # Thoughtful Auto-Eval
 
 ![v2 Demo Part 1](assets/demo_v2_part1.gif)
-<p align="center"><em>Figure 1: Rubric optimization (beginning of workflow).</em></p>
+<p align="center"><em>^ Rubric optimization (beginning of iterations) ^</em></p>
 
 ![v2 Demo Part 2](assets/demo_v2_part2.gif)
-<p align="center"><em>Figure 2: Rubric optimization (during the optimization process).</em></p>
+<p align="center"><em>^ Rubric optimization (middle of iterations) ^</em></p>
 
 ## Table of Contents
 
@@ -96,6 +96,7 @@ thoughtful_auto_eval/
 - Python 3.10+
 - `uv` installed
 - `harbor` CLI installed and available in shell
+- `modal` account setup and available in shell
 - Anthropic API key set:
   - `export ANTHROPIC_API_KEY='...'`
 
