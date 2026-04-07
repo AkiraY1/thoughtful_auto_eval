@@ -218,7 +218,7 @@ def main() -> None:
         selected_model_label = st.selectbox(
             "Model",
             options=["Claude Sonnet 4.6", "Claude Opus 4.1"],
-            index=0,
+            index=1,
         )
         selected_model = (
             "anthropic/claude-sonnet-4-6"

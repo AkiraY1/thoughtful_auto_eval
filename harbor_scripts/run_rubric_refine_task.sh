@@ -32,7 +32,7 @@ RUBRIC_SOURCE="$1"
 RESPONSES_SOURCE="$2"
 JUDGE_OUTPUT_SOURCE="$3"
 CHANGE_SUMMARY_SOURCE="${4:-}"
-MODEL_NAME="${RUBRIC_REFINE_MODEL:-anthropic/claude-sonnet-4-6}"
+MODEL_NAME="${RUBRIC_REFINE_MODEL:-anthropic/claude-opus-4-1}"
 
 TASK_DIR="src/harbor_rubric_refine_task/environment"
 TASK_RUBRIC_PATH="$TASK_DIR/rubric.json"
