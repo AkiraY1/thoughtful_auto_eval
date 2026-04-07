@@ -72,6 +72,7 @@ thoughtful_auto_eval/
      - (4) Agent compares its own evaluation with the LLM judge evaluation and writes notes on pros/cons and possible changes.
      - (5) Agent modifies the rubric and writes a summary of changes.
      - (6) Go back to LLM judge evaluation with the new rubric, and the loop restarts.
+     - (7) Once loop is done, do final eval with optimized rubric and LLM judge on full JSON dataset.
    - **Grounding:** Testing the eval on sample data from the client grounds the iterations in reality. The only better grounding would be to start training a model with these evals.
    - **Scalability:** Can scale in accuracy by inputting more sample data and/or running for more iterations.
    - **Modularity:** Can replace/modify `SKILL.md` files and change `instruction.md` to modify the agentic evaluation loop.
